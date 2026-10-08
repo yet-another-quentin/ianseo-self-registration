@@ -1,0 +1,19 @@
+# Test environment: IANSEO_DIR = a COPY of the IANSEO sources (it gets Common/config.inc.php).
+# MODULE_DIR (optional): another copy of the module, e.g. to test self-update without overwriting the sources.
+#   IANSEO_DIR=/path/to/ianseo-copy docker compose up -d --build && IANSEO_DIR=/path/to/ianseo-copy ./seed.sh  →  http://localhost:8089/
+services:
+  db:
+    image: mariadb:10.11
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: ianseo
+      MARIADB_USER: ianseo
+      MARIADB_PASSWORD: ianseo
+    command: --sql-mode=""
+  web:
+    build: .
+    depends_on: [db]
+    ports: ["8089:80"]
+    volumes:
+      - ${IANSEO_DIR:?copy of the IANSEO sources}:/var/www/html
+      - ${MODULE_DIR:-../SelfRegistration}:/var/www/html/Modules/Custom/SelfRegistration
