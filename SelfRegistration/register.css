@@ -1,0 +1,57 @@
+/* Self registration — public form (mobile first) */
+:root { --fg: #1d1d1b; --muted: #6b6a66; --line: #d8d6d0; --bg: #f6f5f1; --card: #fff; --accent: #2f6f4f; --err: #b3261e; --info: #1f4e79; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#sr-app { max-width: 720px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.5rem; margin: 8px 0 4px; }
+h2 { font-size: 1.2rem; margin: 0 0 8px; }
+.sr-head { margin-bottom: 16px; }
+.sr-head-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr) minmax(0, 1fr); align-items: center; gap: 12px; }
+.sr-head-row.sr-no-logo { grid-template-columns: 1fr; }
+.sr-no-logo .sr-logo-cell { display: none; }
+.sr-head-text { text-align: center; min-width: 0; }
+.sr-head-text h1 { overflow-wrap: anywhere; }
+.sr-logo-cell { display: flex; justify-content: center; }
+.sr-logo { display: block; max-width: 100%; max-height: 140px; width: auto; height: auto; object-fit: contain; }
+.sr-organiser { margin: 0; }
+.sr-facts { justify-content: center; text-align: center; }
+@media (max-width: 480px) {
+  .sr-head-row { gap: 8px; }
+  .sr-logo { max-height: 110px; }
+  .sr-head-text h1 { font-size: 1.25rem; }
+}
+.sr-facts { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 6px 20px; }
+.sr-fact-label { color: var(--muted); margin-right: 6px; }
+.sr-schedule { margin-top: 16px; gap: 6px; }
+.sr-schedule ul { margin: 0; padding-left: 18px; }
+.sr-foot { margin-top: 24px; text-align: center; }
+.sr-banner { width: 100%; height: auto; border-radius: 8px; }
+.sr-list { list-style: none; padding: 0; }
+.sr-list-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; text-decoration: none; color: inherit; }
+.sr-list-item > span { display: flex; flex-direction: column; }
+.sr-list-logo { width: 80px; height: 80px; object-fit: contain; flex: none; }
+.sr-muted { color: var(--muted); }
+.sr-small { font-size: .85rem; }
+.sr-card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+label { display: flex; flex-direction: column; gap: 4px; font-weight: 500; }
+input, select, textarea, button { font: inherit; }
+input[type=text], input:not([type]), input[type=email], input[type=date], select, textarea {
+  padding: 10px; border: 1px solid #c9c6be; border-radius: 6px; background: #fff; width: 100%; }
+input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0; padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+legend { font-weight: 600; padding: 0 4px; }
+.sr-choice { flex-direction: row; align-items: flex-start; gap: 10px; font-weight: 400; cursor: pointer; }
+.sr-choice input { margin-top: 4px; width: 18px; height: 18px; flex: none; }
+.sr-off { color: var(--muted); cursor: default; }
+.sr-badge { display: inline-block; margin-left: 8px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--accent); color: var(--accent); font-size: .8rem; white-space: nowrap; }
+.sr-badge-off { border-color: var(--err); color: var(--err); }
+.sr-primary { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 12px 18px; font-weight: 600; cursor: pointer; }
+.sr-primary:disabled { opacity: .6; cursor: default; }
+.sr-link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; align-self: flex-start; }
+.sr-who { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.sr-alert { padding: 10px 12px; border-radius: 6px; margin: 0; }
+.sr-err { background: #fdecea; color: var(--err); }
+.sr-info { background: #e8f0f8; color: var(--info); }
+.sr-captcha { min-height: 65px; }
+.sr-list li { margin: 8px 0; }
+.sr-list-item strong { color: var(--accent); }

@@ -1,0 +1,42 @@
+/* Self registration — admin page, scoped to #sr-admin so the rest of IANSEO is untouched */
+#sr-admin { max-width: 1200px; margin: 12px auto; padding: 0 12px; font-size: 13px; color: #1d1d1b; }
+#sr-admin h2 { margin: 0; font-size: 18px; }
+#sr-admin h3 { margin: 0 0 10px; font-size: 15px; }
+#sr-admin h4 { margin: 14px 0 4px; font-size: 13px; }
+#sr-admin .sr-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+#sr-admin .sr-upd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; margin-left: auto; }
+#sr-admin .sr-box { background: #fff; border: 1px solid #d8d6d0; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+#sr-admin .sr-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 8px 0; }
+#sr-admin .sr-cols { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; margin: 8px 0; }
+#sr-admin .sr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px 16px; margin: 10px 0; }
+#sr-admin .sr-grid label { display: flex; flex-direction: column; gap: 3px; color: #555; }
+#sr-admin fieldset { border: 1px solid #d8d6d0; border-radius: 6px; margin: 0; padding: 4px 10px 8px; min-width: 260px; }
+#sr-admin legend { color: #555; padding: 0 4px; }
+#sr-admin .sr-chk { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+#sr-admin .sr-link-row input { flex: 1; min-width: 280px; }
+#sr-admin select, #sr-admin input[type=text], #sr-admin input[type=password], #sr-admin input[type=number], #sr-admin input[type=date] {
+  font: inherit; padding: 3px 6px; border: 1px solid #c9c6be; border-radius: 4px; background: #fff; }
+#sr-admin .sr-quota { width: 4.5em; }
+#sr-admin button { font: inherit; padding: 4px 10px; border: 1px solid #2f6f4f; border-radius: 4px; background: #fff; color: #2f6f4f; cursor: pointer; }
+#sr-admin button:disabled { opacity: .5; cursor: default; }
+#sr-admin button.sr-primary { background: #2f6f4f; color: #fff; padding: 6px 14px; font-weight: 600; }
+#sr-admin button.sr-linkbtn { border: 0; padding: 0 2px; text-decoration: underline; background: none; }
+#sr-admin .sr-tab.on { background: #2f6f4f; color: #fff; }
+#sr-admin .sr-status { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #f3e0de; color: #b3261e; font-weight: 600; }
+#sr-admin .sr-status.sr-on { background: #e1efe6; color: #2f6f4f; }
+#sr-admin .sr-chip { border: 1px solid #d8d6d0; border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+#sr-admin .sr-scroll { overflow-x: auto; }
+#sr-admin .sr-table { border-collapse: collapse; margin: 6px 0; }
+#sr-admin .sr-table th, #sr-admin .sr-table td { border-bottom: 1px solid #eceae4; padding: 4px 8px; text-align: left; vertical-align: top; }
+#sr-admin .sr-table th { background: #f6f5f1; }
+#sr-admin .sr-full td { color: #b3261e; }
+#sr-admin .sr-st-2 td { color: #8a8984; }
+#sr-admin .sr-actions { white-space: nowrap; }
+#sr-admin .sr-comment { margin-top: 2px; font-style: italic; color: #555; max-width: 280px; white-space: pre-wrap; }
+#sr-admin .sr-warn-text { color: #9a6700; }
+#sr-admin .sr-muted { color: #6b6a66; }
+#sr-admin .sr-small { font-size: 12px; }
+#sr-admin .sr-alert { padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; }
+#sr-admin .sr-err { background: #fdecea; color: #b3261e; }
+#sr-admin .sr-warn { background: #fff4d6; color: #7a5200; }
+#sr-admin .sr-ok { background: #e1efe6; color: #2f6f4f; }
