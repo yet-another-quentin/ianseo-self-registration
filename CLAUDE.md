@@ -32,7 +32,7 @@ cd dev && IANSEO_DIR=/path/to/copy docker compose up -d --build && IANSEO_DIR=/p
 **The module never writes to the archer tables.** Validating requests builds "List load" lines (`sr_build_lines()`) that `admin.js` posts to `Partecipants/ListLoad.php` (`txtList`, `TextList=1`, **never** `OverwritePreviousArchers`, which would overwrite an archer's entry in another session). IANSEO imports them and shows its own report. Keep it that way.
 
 The module writes only to its own tables `SelfRegRequests` (one row per requested session) and `SelfRegAttempts` (rate limiting), and to `ModulesParameters`.
-- The tables are created by `sr_ensure_schema()`: bump `SR_SCHEMA` and add the migration there.
+- The tables are created by `sr_ensure_schema()`: bump `SR_SCHEMA` and add the migration there (v2: `SrLang`, `SrNotified`).
 - IANSEO's `tour_delete()` does not know them: `sr_purge_orphans()` (admin page load) removes rows of deleted competitions.
 - Never join module tables to IANSEO tables on string columns: collations may differ on upgraded installs. Query separately (see `sr_requests()`).
 
@@ -68,6 +68,21 @@ In `SelfRegistration/`:
   - `api.php` only accepts JSON bodies (a cross-site form cannot send them).
   - `admin.js` re-renders through `innerHTML`: every value goes through `esc()`/`th()`.
 - `menu.php`: included by `Common/Menu.php` (`glob Modules/Custom/*/menu.php`) from both `get_which_menu` and `get_which_run_menu`; in the latter `$acl` and `$ret['PART']` may be missing.
+
+## Emails (optional Mailer module, `../ianseo-mailer`)
+
+- `mailer-templates.php` declares the templates `selfreg.received`, `selfreg.validated`, `selfreg.refused` and `selfreg.new` (organiser). Check it with Mailer's `tests/templates.test.php`.
+- `sr_mailer()` loads `Modules/Custom/Mailer/api.php` only when installed and ready. Without it nothing is sent and nothing fails.
+- Settings `mails.*` (per competition) switch each email on or off.
+- **Acknowledgement** (`sr_notify_received()`, after `submit`): to the archer in the language of the form (`SrLang`), plus the organiser notification to `mailer_contact()`, in the competition's language, with the archer as Reply-To.
+- **Refusal**: sent by the `refuse` action.
+- **Validation**: `sr_notify_validated()` runs on every admin page load or API call and only notifies requests whose entry now exists, i.e. once the List load import went through.
+  - That is why `admin.js` opens the List load report in another tab and refreshes on return.
+  - Only decisions of the last 7 days are notified.
+- `SrNotified` (1 validated, 2 refused) prevents duplicates; it is reset when a request goes back to pending.
+- The public form language: `sr_lang(true)` (Lang, IANSEO cookie, then browser languages by primary subtag). IANSEO's `SelectLanguage()` only knows exact codes (`fr-FR` alone → English) and prefers the competition's print language.
+- `sr_json()` sends `Content-Length`: Mailer sends emails after the answer, and without PHP-FPM the browser needs the length to stop waiting.
+- Dev: `MAILER_DIR=../../ianseo-mailer/Mailer` in `dev/` mounts Mailer. Mailpit catches the emails on http://localhost:8025/ (SMTP `mailpit:1025`, no security).
 
 ## IANSEO behaviour the code relies on (checked in the sources)
 

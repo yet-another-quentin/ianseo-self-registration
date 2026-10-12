@@ -14,6 +14,7 @@ IANSEO module that lets archers register themselves online to a competition, fro
   - license + date of birth check, with no data shown before it and a generic error message;
   - CSRF protection, rate limiting, strict security headers;
   - HTTPS required.
+- **Emails** (with the [Mailer](https://github.com/yet-another-quentin/ianseo-mailer) module): acknowledgement to the archer, validation, refusal, notification of the organiser. Templates are customisable per competition.
 - **Language**: French or English, following IANSEO's language (browser language for visitors).
 
 Tested with IANSEO 2025-02-10 (FR rules).
@@ -79,6 +80,7 @@ Module IANSEO qui permet aux archers de s'inscrire eux-mêmes en ligne à une co
   - vérification licence + date de naissance, sans aucune donnée affichée avant et avec un message d'erreur générique ;
   - protection CSRF, limitation du nombre de tentatives, en-têtes de sécurité stricts ;
   - HTTPS obligatoire.
+- **Emails** (avec le module [Mailer](https://github.com/yet-another-quentin/ianseo-mailer)) : accusé de réception à l'archer, validation, refus, notification de l'organisateur. Les modèles sont personnalisables par compétition.
 - **Langue** : français ou anglais selon la langue d'IANSEO (celle du navigateur pour les visiteurs).
 
 ### Prérequis
