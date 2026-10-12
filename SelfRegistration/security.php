@@ -73,9 +73,10 @@ function sr_csrf_token() {
  */
 function sr_api_guard() {
 	if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') sr_json(array('error' => 'err.request'), 405);
-	$host = strtolower($_SERVER['HTTP_HOST'] ?? '');
+	// host names only: a reverse proxy (Nginx Proxy Manager…) forwards "Host: $host", without the port
+	$host = strtolower(preg_replace('/:\d+$/', '', $_SERVER['HTTP_HOST'] ?? ''));
 	$from = $_SERVER['HTTP_ORIGIN'] ?? ($_SERVER['HTTP_REFERER'] ?? '');
-	$fromHost = strtolower((string)parse_url($from, PHP_URL_HOST) . (parse_url($from, PHP_URL_PORT) ? ':' . parse_url($from, PHP_URL_PORT) : ''));
+	$fromHost = strtolower((string)parse_url($from, PHP_URL_HOST));
 	if ($host === '' or $fromHost !== $host) sr_json(array('error' => 'err.request'), 403);
 	$token = (string)($_SERVER['HTTP_X_SR_TOKEN'] ?? '');
 	if (empty($_SESSION['SR']['csrf']) or !hash_equals($_SESSION['SR']['csrf'], $token)) sr_json(array('error' => 'err.expired'), 403);
