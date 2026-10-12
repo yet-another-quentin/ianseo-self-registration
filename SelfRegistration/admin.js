@@ -98,11 +98,22 @@
 
   // Marks the requests validated and posts the lines to IANSEO's "List load", which imports them and shows its report.
   function validate(ids) {
-    if (!ids.length) return;
+    if (!ids.length || state.busy) return;
+    // the report tab is opened now, during the click: opened after the network call, popup blockers would stop it
+    const win = window.open('', 'sr-listload');
     run(async () => {
-      const res = await api('validate', { ids });
+      let res;
+      try {
+        res = await api('validate', { ids });
+      } catch (e) {
+        if (win) win.close();
+        throw e;
+      }
       state.selected.clear();
-      if (!res.lines.length) return api('context');
+      if (!res.lines.length) {
+        if (win) win.close();
+        return api('context');
+      }
       const form = document.createElement('form');
       form.method = 'POST';
       form.action = ctx.listLoadUrl;
@@ -116,7 +127,8 @@
       form.append(ta, flag);
       // IANSEO's report opens in another tab; back here, the page is refreshed: the requests whose entry now exists
       // get their "validated" email (Mailer)
-      form.target = 'sr-listload';
+      // blocked anyway (no window): the report replaces this page, the emails go when the admin comes back here
+      form.target = win ? 'sr-listload' : '_self';
       form.style.display = 'none';
       document.body.appendChild(form);
       form.submit();

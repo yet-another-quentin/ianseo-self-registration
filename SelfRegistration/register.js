@@ -54,7 +54,8 @@
       r = await fetch('register-api.php', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', 'X-SR-Token': ctx.csrf },
-        body: JSON.stringify(Object.assign({ action, c: ctx.tour.code }, body || {})),
+        // the form's language: the emails to the archer are written in it
+        body: JSON.stringify(Object.assign({ action, c: ctx.tour.code, lang: ctx.lang }, body || {})),
       });
     } catch (e) {
       return { error: 'err.network' };

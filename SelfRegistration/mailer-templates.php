@@ -143,11 +143,11 @@ return array(
 			'fr' => "Une nouvelle demande d'inscription est arrivée pour **{competition.name}**.\n\n"
 				. "- Archer : {archer.lastName} {archer.firstName}\n- Licence : {archer.license}\n- Club : {archer.club}\n- Arme et catégorie : {category}\n{?face}- Blason : {face}\n{/face}- Email : {email}\n- Référence : {reference}\n\n"
 				. "**Départ(s) demandé(s)**\n{sessions}{?comment}\n\n**Message de l'archer**\n{comment}{/comment}\n\n"
-				. "Pour la valider ou la refuser (compétition ouverte dans IANSEO) : {adminUrl}",
+				. "{?adminUrl}Pour la valider ou la refuser (compétition ouverte dans IANSEO) : {adminUrl}{/adminUrl}",
 			'en' => "A new registration request arrived for **{competition.name}**.\n\n"
 				. "- Archer: {archer.lastName} {archer.firstName}\n- License: {archer.license}\n- Club: {archer.club}\n- Bow type and category: {category}\n{?face}- Target face: {face}\n{/face}- Email: {email}\n- Reference: {reference}\n\n"
 				. "**Requested session(s)**\n{sessions}{?comment}\n\n**Archer's message**\n{comment}{/comment}\n\n"
-				. "To validate or refuse it (with the competition open in IANSEO): {adminUrl}",
+				. "{?adminUrl}To validate or refuse it (with the competition open in IANSEO): {adminUrl}{/adminUrl}",
 		),
 	),
 );

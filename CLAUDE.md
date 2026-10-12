@@ -76,10 +76,14 @@ In `SelfRegistration/`:
 - Settings `mails.*` (per competition) switch each email on or off.
 - **Acknowledgement** (`sr_notify_received()`, after `submit`): to the archer in the language of the form (`SrLang`), plus the organiser notification to `mailer_contact()`, in the competition's language, with the archer as Reply-To.
 - **Refusal**: sent by the `refuse` action.
-- **Validation**: `sr_notify_validated()` runs on every admin page load or API call and only notifies requests whose entry now exists, i.e. once the List load import went through.
-  - That is why `admin.js` opens the List load report in another tab and refreshes on return.
+- **Validation**: `sr_notify_validated()` runs on every admin page load or API call and notifies a submission once **every** validated session of it has an entry, i.e. once the List load import went through: one email listing all sessions.
+  - That is why `admin.js` opens the List load report in another tab and refreshes on return. The tab is opened during the click (`window.open` before the network call), otherwise popup blockers stop it; if it is blocked, the report replaces the page.
   - Only decisions of the last 7 days are notified.
-- `SrNotified` (1 validated, 2 refused) prevents duplicates; it is reset when a request goes back to pending.
+- `SrNotified` (1 validated, 2 refused) prevents duplicates.
+  - Rows are claimed with one `UPDATE … where SrNotified=0` (`sr_claim()`) before the email is queued: concurrent admin calls never send twice.
+  - `sr_set_status()` resets it whenever the status changes (refused after validated gets its refusal email).
+- **Links in emails** (`formUrl`, `adminUrl`) come from `sr_base_url()`, remembered by the admin pages (over HTTPS, or the first time), never from a visitor's `Host` header. Unknown address → the link is left out (`{?adminUrl}` block).
+- **Email language**: `register.js` sends the form's language (`lang`), stored in `SrLang`.
 - The public form language: `sr_lang(true)` (Lang, IANSEO cookie, then browser languages by primary subtag). IANSEO's `SelectLanguage()` only knows exact codes (`fr-FR` alone → English) and prefers the competition's print language.
 - `sr_json()` sends `Content-Length`: Mailer sends emails after the answer, and without PHP-FPM the browser needs the length to stop waiting.
 - Dev: `MAILER_DIR=../../ianseo-mailer/Mailer` in `dev/` mounts Mailer. Mailpit catches the emails on http://localhost:8025/ (SMTP `mailpit:1025`, no security).
@@ -92,7 +96,7 @@ In `SelfRegistration/`:
   - Tested with a reproduction of NPM's template: path tricks (`..`, `%2F`, `;`, case) all get 401.
 - IANSEO's Apache needs `mod_remoteip` (X-Real-IP from the proxy network) and `HTTPS=on` from `X-Forwarded-Proto`, only for connections from the proxy (`CONN_REMOTE_ADDR`). Otherwise `REMOTE_ADDR` is the proxy for every visitor, which breaks the rate limits, and `getMyScheme()` says http.
 - The session cookie is `Secure` once HTTPS is detected: tests over plain http must pass the cookie by hand.
-- `sr_api_guard()` compares host **names** only: NPM forwards `Host: $host`, without the port.
+- `sr_api_guard()` compares host **names** (NPM forwards `Host: $host`, without the port) **and** the scheme (`https` when `sr_is_https()`).
 
 ## IANSEO behaviour the code relies on (checked in the sources)
 

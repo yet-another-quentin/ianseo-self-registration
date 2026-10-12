@@ -549,9 +549,10 @@ function sr_entry_sessions($TourId, $code) {
 function sr_set_status($TourId, $ids, $status) {
 	$ids = array_values(array_filter(array_map('intval', (array)$ids)));
 	if (!$ids) return 0;
-	// back to pending: a later decision will send its email again
-	safe_w_sql("update SelfRegRequests set SrStatus=" . intval($status) . ", SrDecided=" . ($status ? StrSafe_DB(date('Y-m-d H:i:s')) : 'NULL')
-		. ($status ? '' : ', SrNotified=0')
+	// a new decision (refused after validated, back to pending…) gets its own email: the "email sent" flag is reset
+	// when the status changes. MySQL applies the assignments in order: SrNotified is computed with the old SrStatus.
+	safe_w_sql("update SelfRegRequests set SrNotified=if(SrStatus=" . intval($status) . ", SrNotified, 0), SrStatus=" . intval($status)
+		. ", SrDecided=" . ($status ? StrSafe_DB(date('Y-m-d H:i:s')) : 'NULL')
 		. " where SrTournament=" . intval($TourId) . " and SrId in (" . implode(',', $ids) . ")");
 	return safe_w_affected_rows();
 }
@@ -575,11 +576,33 @@ function sr_module_url($file) {
 }
 
 function sr_public_url($code) {
-	return sr_module_url('register.php?c=' . rawurlencode($code));
+	return (sr_base_url() ?: sr_module_url('')) . 'register.php?c=' . rawurlencode($code);
+}
+
+/**
+ * Address of the module folder used in emails and shown as public link. Remembered from the admin pages (admin
+ * rights: a trusted Host) when they are served over HTTPS, or when none is known yet — not from a LAN visit over
+ * http. Public pages only read it: a visitor's Host header is never put in an email.
+ */
+function sr_base_url($remember = false) {
+	$stored = (string)sr_param_get(0, 'baseUrl', '');
+	if ($remember and ($stored === '' or sr_is_https())) {
+		$url = sr_module_url('');
+		if ($url !== $stored) sr_param_set(0, 'baseUrl', $url);
+		return $url;
+	}
+	return $stored;
+}
+
+// Link to a module file for an email, or '' when the site address is not known yet (the template hides it).
+function sr_mail_url($file) {
+	$base = sr_base_url();
+	return $base === '' ? '' : $base . $file;
 }
 
 function sr_context($TourId) {
 	global $CFG;
+	sr_base_url(true);
 	sr_notify_validated($TourId);
 	$tour = sr_tour($TourId);
 	$q = safe_r_sql("select count(*) as n from LookUpEntries where LueIocCode=" . StrSafe_DB($tour->ToIocCode));
@@ -690,7 +713,7 @@ function sr_mail_vars($tour, $rows, $lang) {
 		'reference' => strtoupper(substr($first->SrGroup, 0, 8)),
 		'comment' => (string)$first->SrComment,
 		'email' => (string)$first->SrEmail,
-		'formUrl' => sr_public_url($tour->ToCode),
+		'formUrl' => sr_mail_url('register.php?c=' . rawurlencode($tour->ToCode)),
 	);
 }
 
@@ -721,10 +744,29 @@ function sr_notify_received($tour, $group) {
 	if ($settings['mails']['organiser'] and $contact['email'] !== '') {
 		// in the competition's language, not the archer's
 		$orgLang = mailer_default_lang($tour->ToId);
-		$vars = sr_mail_vars($tour, $rows, $orgLang) + array('adminUrl' => sr_module_url('index.php'));
+		$vars = sr_mail_vars($tour, $rows, $orgLang) + array('adminUrl' => sr_mail_url('index.php'));
 		mailer_queue('selfreg.new', $tour->ToId, $contact['email'], $vars, array('lang' => $orgLang, 'replyTo' => $rows[0]->SrEmail, 'ref' => $group));
 	}
 	return $sent;
+}
+
+/**
+ * Claims rows for an email: sets SrNotified from 0 to $flag in one UPDATE. Only the request that changed every row
+ * sends the email, so two admin calls at the same time never send it twice. Returns false (and releases what it
+ * took) when another request was first.
+ */
+function sr_claim($rows, $status, $flag) {
+	$ids = implode(',', array_map(function ($r) { return intval($r->SrId); }, $rows));
+	safe_w_sql("update SelfRegRequests set SrNotified=" . intval($flag) . " where SrId in ($ids) and SrNotified=0 and SrStatus=" . intval($status));
+	$n = safe_w_affected_rows();
+	if ($n === count($rows)) return true;
+	if ($n > 0) sr_unclaim($rows, $flag);
+	return false;
+}
+
+function sr_unclaim($rows, $flag) {
+	$ids = implode(',', array_map(function ($r) { return intval($r->SrId); }, $rows));
+	safe_w_sql("update SelfRegRequests set SrNotified=0 where SrId in ($ids) and SrNotified=" . intval($flag));
 }
 
 // Refused requests: one email per submission, listing the refused sessions.
@@ -733,9 +775,10 @@ function sr_notify_refused($TourId, $ids) {
 	if (!$ids or !sr_mailer() or !sr_settings($TourId)['mails']['refused']) return;
 	$tour = sr_tour($TourId);
 	foreach (sr_rows_by_group($TourId, "SrStatus=2 and SrNotified=0 and SrId in (" . implode(',', $ids) . ")") as $group => $rows) {
+		if (!sr_claim($rows, 2, 2)) continue;
 		$lang = $rows[0]->SrLang ?: 'fr';
-		if (mailer_queue('selfreg.refused', $TourId, $rows[0]->SrEmail, sr_mail_vars($tour, $rows, $lang), array('lang' => $lang, 'ref' => $group))) {
-			safe_w_sql("update SelfRegRequests set SrNotified=2 where SrId in (" . implode(',', array_map(function ($r) { return intval($r->SrId); }, $rows)) . ")");
+		if (!mailer_queue('selfreg.refused', $TourId, $rows[0]->SrEmail, sr_mail_vars($tour, $rows, $lang), array('lang' => $lang, 'ref' => $group))) {
+			sr_unclaim($rows, 2);
 		}
 	}
 }
@@ -749,14 +792,23 @@ function sr_notify_validated($TourId) {
 	if (!sr_mailer() or !sr_settings($TourId)['mails']['validated']) return;
 	$tour = sr_tour($TourId);
 	$since = StrSafe_DB(date('Y-m-d H:i:s', time() - 7 * 86400));
-	foreach (sr_rows_by_group($TourId, "SrStatus=1 and SrNotified=0 and SrDecided >= $since") as $group => $rows) {
-		$withEntry = array_values(array_filter($rows, function ($r) use ($TourId) {
-			return in_array(intval($r->SrSession), sr_entry_sessions($TourId, $r->SrCode), true);
-		}));
-		if (!$withEntry) continue;
-		$lang = $withEntry[0]->SrLang ?: 'fr';
-		if (mailer_queue('selfreg.validated', $TourId, $withEntry[0]->SrEmail, sr_mail_vars($tour, $withEntry, $lang), array('lang' => $lang, 'ref' => $group))) {
-			safe_w_sql("update SelfRegRequests set SrNotified=1 where SrId in (" . implode(',', array_map(function ($r) { return intval($r->SrId); }, $withEntry)) . ")");
+	$groups = sr_rows_by_group($TourId, "SrStatus=1 and SrNotified=0 and SrDecided >= $since");
+	if (!$groups) return;
+	// entries of these archers, in one query: code|session => true
+	$codes = array();
+	foreach ($groups as $rows) foreach ($rows as $r) $codes[$r->SrCode] = true;
+	$entries = array();
+	$q = safe_r_sql("select EnCode, QuSession from Entries inner join Qualifications on QuId=EnId where EnTournament=" . intval($TourId)
+		. " and EnCode in (" . implode(',', array_map('StrSafe_DB', array_keys($codes))) . ")");
+	while ($r = safe_fetch($q)) $entries[strtoupper($r->EnCode) . '|' . intval($r->QuSession)] = true;
+	foreach ($groups as $group => $rows) {
+		// one email per submission, once every validated session of it is in IANSEO (a partly imported request
+		// waits: the archer must not read "session 1 confirmed" as "session 3 refused")
+		foreach ($rows as $r) if (empty($entries[strtoupper($r->SrCode) . '|' . intval($r->SrSession)])) continue 2;
+		if (!sr_claim($rows, 1, 1)) continue;
+		$lang = $rows[0]->SrLang ?: 'fr';
+		if (!mailer_queue('selfreg.validated', $TourId, $rows[0]->SrEmail, sr_mail_vars($tour, $rows, $lang), array('lang' => $lang, 'ref' => $group))) {
+			sr_unclaim($rows, 1);
 		}
 	}
 }

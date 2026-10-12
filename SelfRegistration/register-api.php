@@ -12,7 +12,7 @@ require_once(dirname(__FILE__, 4) . '/config.php');
 require_once(__DIR__ . '/lib.php');
 
 // Books the requested sessions (one pending request per session). Caller holds the competition lock.
-function sr_book($tour, $archer, $settings, $req, $comment) {
+function sr_book($tour, $archer, $settings, $req, $comment, $lang) {
 	$TourId = intval($tour->ToId);
 	$offer = sr_archer_offer($tour, $archer, $settings);
 	$division = null;
@@ -35,7 +35,7 @@ function sr_book($tour, $archer, $settings, $req, $comment) {
 			. ", SrCode=" . StrSafe_DB($archer['code']) . ", SrDivision=" . StrSafe_DB($division['id'])
 			. ", SrClass=" . StrSafe_DB($division['class']['id']) . ", SrFace=$face, SrSession=$ses"
 			. ", SrEmail=" . StrSafe_DB($req['email']) . ", SrComment=" . StrSafe_DB($comment)
-			. ", SrLang=" . StrSafe_DB(sr_lang(true)) . ", SrStatus=0, SrCreated=$now");
+			. ", SrLang=" . StrSafe_DB($lang) . ", SrStatus=0, SrCreated=$now");
 	}
 	return array('ok' => true, 'group' => $group, 'reference' => strtoupper(substr($group, 0, 8)), 'sessions' => array_map('intval', $req['sessions']));
 }
@@ -113,7 +113,9 @@ try {
 			$lock = StrSafe_DB('selfreg_' . $TourId);
 			if (!intval(safe_fetch(safe_w_sql("select get_lock($lock, 5) as l"))->l)) sr_json(array('error' => 'err.busy'), 503);
 			try {
-				$answer = sr_book($tour, $archer, $settings, $req, $comment);
+				// language of the form the archer saw (it may come from ?Lang=), else detected like the page does
+				$lang = in_array($in['lang'] ?? '', array('fr', 'en'), true) ? $in['lang'] : sr_lang(true);
+				$answer = sr_book($tour, $archer, $settings, $req, $comment, $lang);
 			} finally {
 				safe_w_sql("select release_lock($lock)");
 			}
