@@ -33,6 +33,7 @@ test('keys built at runtime exist', () => {
     ...['pending', 'validated', 'refused', 'all'].map(s => 'requests.' + s),
     ...['pending', 'validated', 'refused'].map(s => 'requests.st.' + s),
     'update.channel.stable', 'update.channel.nightly',
+    ...['received', 'validated', 'refused', 'organiser'].map(s => 'mails.' + s),     // email settings
   ];
   assert.deepEqual(keys.filter(k => !(k in I.DICTS.en)), []);
 });

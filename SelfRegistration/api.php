@@ -46,6 +46,8 @@ try {
 				'divisions' => array_values(array_intersect($divisions, array_map('strval', (array)($s['divisions'] ?? array())))),
 				'quotas' => $quotas ?: new stdClass(),
 				'allowFace' => !empty($s['allowFace']),
+				'mails' => array_map(function ($k) use ($s) { return !empty($s['mails'][$k]); },
+					array('received' => 'received', 'validated' => 'validated', 'refused' => 'refused', 'organiser' => 'organiser')),
 			));
 			JsonOut(sr_context($TourId));
 
@@ -67,6 +69,7 @@ try {
 
 		case 'refuse':
 			sr_set_status($TourId, $in['ids'] ?? array(), 2);
+			sr_notify_refused($TourId, $in['ids'] ?? array());
 			JsonOut(sr_context($TourId));
 
 		case 'reset':

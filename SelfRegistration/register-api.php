@@ -35,9 +35,9 @@ function sr_book($tour, $archer, $settings, $req, $comment) {
 			. ", SrCode=" . StrSafe_DB($archer['code']) . ", SrDivision=" . StrSafe_DB($division['id'])
 			. ", SrClass=" . StrSafe_DB($division['class']['id']) . ", SrFace=$face, SrSession=$ses"
 			. ", SrEmail=" . StrSafe_DB($req['email']) . ", SrComment=" . StrSafe_DB($comment)
-			. ", SrStatus=0, SrCreated=$now");
+			. ", SrLang=" . StrSafe_DB(sr_lang(true)) . ", SrStatus=0, SrCreated=$now");
 	}
-	return array('ok' => true, 'reference' => strtoupper(substr($group, 0, 8)), 'sessions' => array_map('intval', $req['sessions']));
+	return array('ok' => true, 'group' => $group, 'reference' => strtoupper(substr($group, 0, 8)), 'sessions' => array_map('intval', $req['sessions']));
 }
 
 try {
@@ -120,6 +120,9 @@ try {
 			if (!empty($answer['ok'])) {
 				sr_rate_log($TourId, 'submit', $ip, sr_rate_key($archer['code']), true);
 				sr_clear_verified($TourId);
+				// emails are queued here and sent after the answer reached the visitor (Mailer module, if configured)
+				$answer['emailSent'] = sr_notify_received($tour, $answer['group']);
+				unset($answer['group']);
 			}
 			sr_json($answer);
 	}

@@ -45,7 +45,10 @@ function sr_json($data, $status = 200) {
 	http_response_code($status);
 	sr_security_headers(false);
 	header('Content-Type: application/json; charset=UTF-8');
-	echo json_encode($data, JSON_UNESCAPED_UNICODE);
+	$body = json_encode($data, JSON_UNESCAPED_UNICODE);
+	// known length: the browser has the whole answer even if emails are then sent by this request (Mailer)
+	header('Content-Length: ' . strlen($body));
+	echo $body;
 	exit;
 }
 

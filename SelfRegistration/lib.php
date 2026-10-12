@@ -10,7 +10,7 @@
 require_once(__DIR__ . '/core.php');
 
 const SR_MODULE = 'SelfRegistration';
-const SR_SCHEMA = 1;
+const SR_SCHEMA = 2;
 
 // URL of a module asset with a cache buster: version + file time (the version stays 0.0.0-dev in development).
 function sr_asset($file) {
@@ -24,8 +24,20 @@ function sr_version_info() {
 
 // ---------- language ----------
 
-// French if IANSEO runs in French (for visitors: browser language, see SelectLanguage()), English otherwise.
-function sr_lang() {
+// 'fr' or 'en'. For the public pages (no IANSEO login): ?Lang=, then IANSEO's language cookie, then the browser's
+// languages by primary subtag ("fr-FR" counts as French; IANSEO's SelectLanguage() only knows exact codes, and
+// prefers the competition's print language). Elsewhere: IANSEO's language.
+function sr_lang($public = false) {
+	if ($public) {
+		foreach (array($_REQUEST['Lang'] ?? '', $_COOKIE['UseLanguage'] ?? '') as $l) {
+			if (preg_match('/^(fr|en)/i', $l, $m)) return strtolower($m[1]);
+		}
+		foreach (explode(',', (string)($_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? '')) as $l) {
+			$l = strtolower(trim(explode(';', $l)[0]));
+			if (preg_match('/^(fr|en)\b/', $l, $m)) return $m[1];
+		}
+		return 'en';
+	}
 	return preg_match('/^fr/i', (string)SelectLanguage()) ? 'fr' : 'en';
 }
 
@@ -127,6 +139,13 @@ function sr_settings($TourId) {
 		'divisions' => array_values(array_map('strval', (array)($s['divisions'] ?? array()))),
 		'quotas' => $quotas,
 		'allowFace' => !empty($s['allowFace']),
+		// emails sent through the Mailer module, when installed and configured (all on by default)
+		'mails' => array(
+			'received' => !isset($s['mails']['received']) || !empty($s['mails']['received']),
+			'validated' => !isset($s['mails']['validated']) || !empty($s['mails']['validated']),
+			'refused' => !isset($s['mails']['refused']) || !empty($s['mails']['refused']),
+			'organiser' => !isset($s['mails']['organiser']) || !empty($s['mails']['organiser']),
+		),
 	);
 }
 
@@ -136,7 +155,8 @@ function sr_ensure_schema() {
 	static $done = false;
 	if ($done) return;
 	$done = true;
-	if (intval(sr_param_get(0, 'schema', 0)) >= SR_SCHEMA) return;
+	$version = intval(sr_param_get(0, 'schema', 0));
+	if ($version >= SR_SCHEMA) return;
 	safe_w_sql("CREATE TABLE IF NOT EXISTS `SelfRegRequests` (
 		`SrId` int unsigned NOT NULL AUTO_INCREMENT,
 		`SrTournament` int unsigned NOT NULL,
@@ -167,6 +187,11 @@ function sr_ensure_schema() {
 		KEY `SaIp` (`SaType`, `SaIp`, `SaTime`),
 		KEY `SaKey` (`SaType`, `SaKey`, `SaTime`)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+	if ($version < 2) {
+		// v2: language of the form (emails to the archer) and emails sent (1 = validated, 2 = refused); 1060 = column exists
+		safe_w_sql("ALTER TABLE `SelfRegRequests` ADD `SrLang` varchar(5) NOT NULL DEFAULT ''", false, array(1060));
+		safe_w_sql("ALTER TABLE `SelfRegRequests` ADD `SrNotified` tinyint NOT NULL DEFAULT 0", false, array(1060));
+	}
 	sr_param_set(0, 'schema', SR_SCHEMA);
 }
 
@@ -524,7 +549,9 @@ function sr_entry_sessions($TourId, $code) {
 function sr_set_status($TourId, $ids, $status) {
 	$ids = array_values(array_filter(array_map('intval', (array)$ids)));
 	if (!$ids) return 0;
+	// back to pending: a later decision will send its email again
 	safe_w_sql("update SelfRegRequests set SrStatus=" . intval($status) . ", SrDecided=" . ($status ? StrSafe_DB(date('Y-m-d H:i:s')) : 'NULL')
+		. ($status ? '' : ', SrNotified=0')
 		. " where SrTournament=" . intval($TourId) . " and SrId in (" . implode(',', $ids) . ")");
 	return safe_w_affected_rows();
 }
@@ -542,14 +569,18 @@ function sr_channel() {
 	return sr_param_get(0, 'channel', 'stable') === 'nightly' ? 'nightly' : 'stable';
 }
 
+// Absolute URL of a file of this module, from the current request (all module pages are in the module folder).
+function sr_module_url($file) {
+	return getMyScheme() . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/') . '/' . $file;
+}
+
 function sr_public_url($code) {
-	$scheme = getMyScheme();
-	$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-	return $scheme . '://' . $host . dirname($_SERVER['SCRIPT_NAME']) . '/register.php?c=' . rawurlencode($code);
+	return sr_module_url('register.php?c=' . rawurlencode($code));
 }
 
 function sr_context($TourId) {
 	global $CFG;
+	sr_notify_validated($TourId);
 	$tour = sr_tour($TourId);
 	$q = safe_r_sql("select count(*) as n from LookUpEntries where LueIocCode=" . StrSafe_DB($tour->ToIocCode));
 	$version = sr_version_info();
@@ -576,7 +607,158 @@ function sr_context($TourId) {
 		'version' => $version['version'],
 		'listLoadUrl' => $CFG->ROOT_DIR . 'Partecipants/ListLoad.php',
 		'syncUrl' => $CFG->ROOT_DIR . 'Partecipants/LookupTableLoad.php',
+		'mailer' => sr_mailer_info($TourId),
 	);
+}
+
+// ---------- emails (optional Mailer module: Modules/Custom/Mailer) ----------
+// Templates: mailer-templates.php. Nothing here fails when Mailer is missing or not configured: no email is sent.
+
+function sr_mailer_installed() {
+	return is_file(dirname(__DIR__) . '/Mailer/api.php');
+}
+
+function sr_mailer() {
+	static $ok = null;
+	if ($ok !== null) return $ok;
+	if (!sr_mailer_installed()) return $ok = false;
+	require_once(dirname(__DIR__) . '/Mailer/api.php');
+	return $ok = (defined('MAILER_API') and MAILER_API >= 1 and mailer_available());
+}
+
+function sr_mailer_info($TourId) {
+	$installed = sr_mailer_installed();
+	$available = sr_mailer();
+	return array(
+		'installed' => $installed,
+		'available' => $available,
+		'url' => $installed ? (function_exists('mailer_admin_path') ? mailer_admin_path() : '') : '',
+		'contact' => $available ? mailer_contact($TourId)['email'] : '',
+	);
+}
+
+// "Départ 1 – Samedi matin – samedi 12 décembre 2026 à 10:00", one line per session.
+function sr_session_lines($TourId, $orders, $lang) {
+	$byOrder = array();
+	foreach (sr_sessions($TourId) as $s) $byOrder[$s['order']] = $s;
+	$orders = array_unique(array_map('intval', $orders));
+	sort($orders);
+	$lines = array();
+	foreach ($orders as $o) {
+		$s = $byOrder[$o] ?? array('name' => '', 'start' => '');
+		$lines[] = implode(' – ', array_filter(array(
+			($lang === 'fr' ? 'Départ ' : 'Session ') . $o, $s['name'], $s['start'] ? mailer_format_date($s['start'], $lang, true) : '',
+		), 'strlen'));
+	}
+	return implode("\n", $lines);
+}
+
+function sr_category_label($TourId, $div, $class) {
+	$d = safe_fetch(safe_r_sql("select DivDescription from Divisions where DivTournament=" . intval($TourId) . " and DivId=" . StrSafe_DB($div)));
+	$c = safe_fetch(safe_r_sql("select ClDescription from Classes where ClTournament=" . intval($TourId) . " and ClId=" . StrSafe_DB($class)));
+	return implode(' – ', array_filter(array($d ? $d->DivDescription : $div, $c ? $c->ClDescription : $class), 'strlen'));
+}
+
+function sr_face_name($TourId, $TfId) {
+	$r = safe_fetch(safe_r_sql("select TfName from TargetFaces where TfTournament=" . intval($TourId) . " and TfId=" . intval($TfId)));
+	return $r ? get_text($r->TfName, 'Tournament', '', true) : '';
+}
+
+// Names and club of a license, from the license database.
+function sr_archer_names($tour, $code) {
+	$r = safe_fetch(safe_r_sql("select LueFamilyName, LueName, LueCoShort, LueCoDescr from LookUpEntries where LueCode=" . StrSafe_DB($code)
+		. " and LueIocCode=" . StrSafe_DB($tour->ToIocCode) . " order by LueDefault desc limit 1"));
+	return array(
+		'firstName' => $r ? (string)$r->LueName : '', 'lastName' => $r ? (string)$r->LueFamilyName : '',
+		'club' => $r ? (string)($r->LueCoShort ?: $r->LueCoDescr) : '',
+	);
+}
+
+/**
+ * Variables of an email about requests of one submission (one archer, division and face; one row per session).
+ * $rows: SelfRegRequests rows.
+ */
+function sr_mail_vars($tour, $rows, $lang) {
+	$first = $rows[0];
+	$names = sr_archer_names($tour, $first->SrCode);
+	return array(
+		'archer.firstName' => $names['firstName'], 'archer.lastName' => $names['lastName'],
+		'archer.license' => $first->SrCode, 'archer.club' => $names['club'],
+		'category' => sr_category_label($tour->ToId, $first->SrDivision, $first->SrClass),
+		'face' => $first->SrFace ? sr_face_name($tour->ToId, $first->SrFace) : '',
+		'sessions' => sr_session_lines($tour->ToId, array_map(function ($r) { return $r->SrSession; }, $rows), $lang),
+		'reference' => strtoupper(substr($first->SrGroup, 0, 8)),
+		'comment' => (string)$first->SrComment,
+		'email' => (string)$first->SrEmail,
+		'formUrl' => sr_public_url($tour->ToCode),
+	);
+}
+
+// Rows of the given ids (or of a submission), grouped by submission.
+function sr_rows_by_group($TourId, $where) {
+	$groups = array();
+	$q = safe_r_sql("select * from SelfRegRequests where SrTournament=" . intval($TourId) . " and ($where) order by SrSession");
+	while ($r = safe_fetch($q)) $groups[$r->SrGroup][] = $r;
+	return $groups;
+}
+
+/**
+ * New submission: acknowledgement to the archer (in the language of the form) and notification to the competition
+ * contact (reply-to: the archer). Returns true when the archer's email was queued.
+ */
+function sr_notify_received($tour, $group) {
+	$settings = sr_settings($tour->ToId);
+	if (!sr_mailer()) return false;
+	$rows = sr_rows_by_group($tour->ToId, "SrGroup=" . StrSafe_DB($group))[$group] ?? array();
+	if (!$rows) return false;
+	$lang = $rows[0]->SrLang ?: 'fr';
+	$sent = false;
+	if ($settings['mails']['received']) {
+		$sent = (bool)mailer_queue('selfreg.received', $tour->ToId, $rows[0]->SrEmail, sr_mail_vars($tour, $rows, $lang),
+			array('lang' => $lang, 'ref' => $group));
+	}
+	$contact = mailer_contact($tour->ToId);
+	if ($settings['mails']['organiser'] and $contact['email'] !== '') {
+		// in the competition's language, not the archer's
+		$orgLang = mailer_default_lang($tour->ToId);
+		$vars = sr_mail_vars($tour, $rows, $orgLang) + array('adminUrl' => sr_module_url('index.php'));
+		mailer_queue('selfreg.new', $tour->ToId, $contact['email'], $vars, array('lang' => $orgLang, 'replyTo' => $rows[0]->SrEmail, 'ref' => $group));
+	}
+	return $sent;
+}
+
+// Refused requests: one email per submission, listing the refused sessions.
+function sr_notify_refused($TourId, $ids) {
+	$ids = array_values(array_filter(array_map('intval', (array)$ids)));
+	if (!$ids or !sr_mailer() or !sr_settings($TourId)['mails']['refused']) return;
+	$tour = sr_tour($TourId);
+	foreach (sr_rows_by_group($TourId, "SrStatus=2 and SrNotified=0 and SrId in (" . implode(',', $ids) . ")") as $group => $rows) {
+		$lang = $rows[0]->SrLang ?: 'fr';
+		if (mailer_queue('selfreg.refused', $TourId, $rows[0]->SrEmail, sr_mail_vars($tour, $rows, $lang), array('lang' => $lang, 'ref' => $group))) {
+			safe_w_sql("update SelfRegRequests set SrNotified=2 where SrId in (" . implode(',', array_map(function ($r) { return intval($r->SrId); }, $rows)) . ")");
+		}
+	}
+}
+
+/**
+ * Validated requests whose entry now exists in IANSEO (the List load import went through): one email per
+ * submission. Called on every admin page load and API call. Only requests decided in the last 7 days, so that
+ * enabling emails later does not write to archers validated long ago.
+ */
+function sr_notify_validated($TourId) {
+	if (!sr_mailer() or !sr_settings($TourId)['mails']['validated']) return;
+	$tour = sr_tour($TourId);
+	$since = StrSafe_DB(date('Y-m-d H:i:s', time() - 7 * 86400));
+	foreach (sr_rows_by_group($TourId, "SrStatus=1 and SrNotified=0 and SrDecided >= $since") as $group => $rows) {
+		$withEntry = array_values(array_filter($rows, function ($r) use ($TourId) {
+			return in_array(intval($r->SrSession), sr_entry_sessions($TourId, $r->SrCode), true);
+		}));
+		if (!$withEntry) continue;
+		$lang = $withEntry[0]->SrLang ?: 'fr';
+		if (mailer_queue('selfreg.validated', $TourId, $withEntry[0]->SrEmail, sr_mail_vars($tour, $withEntry, $lang), array('lang' => $lang, 'ref' => $group))) {
+			safe_w_sql("update SelfRegRequests set SrNotified=1 where SrId in (" . implode(',', array_map(function ($r) { return intval($r->SrId); }, $withEntry)) . ")");
+		}
+	}
 }
 
 // ---------- environment ----------

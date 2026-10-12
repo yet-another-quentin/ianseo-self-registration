@@ -30,6 +30,7 @@
       open: s.open, deadline: s.deadline, allowFace: s.allowFace,
       sessions: new Set(s.sessions), divisions: new Set(s.divisions),
       quotas: JSON.parse(JSON.stringify(s.quotas || {})),
+      mails: Object.assign({}, s.mails),
     };
   }
   state.draft = freshDraft();
@@ -79,7 +80,7 @@
     run(async () => {
       const res = await api('settings', { settings: {
         open: d.open, deadline: d.deadline, allowFace: d.allowFace,
-        sessions: [...d.sessions], divisions: [...d.divisions], quotas: d.quotas,
+        sessions: [...d.sessions], divisions: [...d.divisions], quotas: d.quotas, mails: d.mails,
       } });
       ctx = res;
       state.draft = freshDraft();
@@ -113,11 +114,18 @@
       flag.name = 'TextList';
       flag.value = '1';
       form.append(ta, flag);
+      // IANSEO's report opens in another tab; back here, the page is refreshed: the requests whose entry now exists
+      // get their "validated" email (Mailer)
+      form.target = 'sr-listload';
       form.style.display = 'none';
       document.body.appendChild(form);
       form.submit();
-      return null;
-    }, '');
+      form.remove();
+      const refresh = () => { window.removeEventListener('focus', refresh); api('context').then(res => { ctx = res; render(); }).catch(() => {}); };
+      window.addEventListener('focus', refresh);
+      setTimeout(refresh, 8000);
+      return api('context');
+    }, t('requests.importOpened'));
   }
 
   function setStatus(action, ids) {
@@ -240,8 +248,25 @@
         </fieldset>
       </div>
       ${renderQuotas()}
+      ${renderMails()}
       <div class="sr-row"><button type="button" class="sr-primary" id="sr-save" ${state.busy ? 'disabled' : ''}>${th('settings.save')}</button></div>
     </div>`;
+  }
+
+  // Emails through the optional Mailer module
+  function renderMails() {
+    const m = ctx.mailer;
+    const d = state.draft;
+    let head;
+    if (!m.installed) head = `<div class="sr-muted sr-small">${th('mails.notInstalled')}</div>`;
+    else if (!m.available) head = `<div class="sr-alert sr-warn">${th('mails.notReady', { url: m.url })}</div>`;
+    else head = `<div class="sr-muted sr-small">${th('mails.ready', { url: m.url })}</div>`;
+    const box = (k, extra) => `<label class="sr-chk"><input type="checkbox" class="sr-mail" value="${k}" ${d.mails[k] ? 'checked' : ''} ${m.installed ? '' : 'disabled'}> ${th('mails.' + k)}${extra || ''}</label>`;
+    return `<h4>${th('mails.title')}</h4>${head}
+      <div class="sr-cols"><div>
+        ${box('received')}${box('validated')}${box('refused')}
+        ${box('organiser', m.available ? (m.contact ? ` <span class="sr-muted">(${esc(m.contact)})</span>` : ` <span class="sr-warn-text">${th('mails.noContact', { url: m.url })}</span>`) : '')}
+      </div></div>`;
   }
 
   function quotaDivisions() {
@@ -352,6 +377,7 @@
     on('sr-open', 'change', e => { d.open = e.target.checked; });
     on('sr-deadline', 'change', e => { d.deadline = e.target.value; });
     on('sr-allowface', 'change', e => { d.allowFace = e.target.checked; });
+    app.querySelectorAll('.sr-mail').forEach(el => el.addEventListener('change', () => { d.mails[el.value] = el.checked; }));
     app.querySelectorAll('.sr-ses').forEach(el => el.addEventListener('change', () => {
       const n = parseInt(el.value, 10);
       el.checked ? d.sessions.add(n) : d.sessions.delete(n);

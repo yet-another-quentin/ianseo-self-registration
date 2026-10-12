@@ -322,6 +322,7 @@
       return setMessage(errorText(res.error, res.params));
     }
     state.reference = res.reference;
+    state.emailSent = !!res.emailSent;
     state.booked = res.sessions;
     state.step = 'done';
     render();
@@ -340,6 +341,7 @@
         return h('li', null, t('session.label', { n: o }) + (info.name ? ' – ' + info.name : '') + (info.start ? ' · ' + fmtDateTime(info.start) : ''));
       })),
       div ? h('p', null, t('done.category', { division: div.name, cls: div.class.name })) : null,
+      state.emailSent ? h('p', null, t('done.emailSent', { email: state.email.trim() })) : null,
       h('p', { class: 'sr-alert sr-info' }, t('done.pending')),
       h('button', { type: 'button', class: 'sr-link', onclick: () => { state.sessions.clear(); state.comment = ''; restart(); } }, t('done.another')));
   }

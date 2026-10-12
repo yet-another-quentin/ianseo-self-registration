@@ -16,7 +16,7 @@ header('Content-Type: text/html; charset=UTF-8');
 
 $keys = sr_turnstile_keys();
 $ctx = array(
-	'lang' => sr_lang(),
+	'lang' => sr_lang(true),
 	'csrf' => sr_csrf_token(),
 	'turnstileSite' => $keys['site'],
 	'state' => 'list',
