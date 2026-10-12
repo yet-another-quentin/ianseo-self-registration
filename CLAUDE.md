@@ -84,6 +84,16 @@ In `SelfRegistration/`:
 - `sr_json()` sends `Content-Length`: Mailer sends emails after the answer, and without PHP-FPM the browser needs the length to stop waiting.
 - Dev: `MAILER_DIR=../../ianseo-mailer/Mailer` in `dev/` mounts Mailer. Mailpit catches the emails on http://localhost:8025/ (SMTP `mailpit:1025`, no security).
 
+## Deployment behind a reverse proxy (README › Putting IANSEO online safely)
+
+- IANSEO has no usable login: `Modules/Authentication` is not in the public release, so `$CFG->USERAUTH` cannot be enabled.
+- Its IP lock (`checkFullACL()`) is per competition: home, competition creation, IANSEO update and a fresh competition, hence the installation-wide settings, stay open. `127.0.0.1` always gets ReadWrite.
+- The site is therefore protected at the proxy (Nginx Proxy Manager Access List), with a regex `location` in "Advanced" that leaves only the 6 public files of the form open. It proxies `$uri`, not `$request_uri`.
+  - Tested with a reproduction of NPM's template: path tricks (`..`, `%2F`, `;`, case) all get 401.
+- IANSEO's Apache needs `mod_remoteip` (X-Real-IP from the proxy network) and `HTTPS=on` from `X-Forwarded-Proto`, only for connections from the proxy (`CONN_REMOTE_ADDR`). Otherwise `REMOTE_ADDR` is the proxy for every visitor, which breaks the rate limits, and `getMyScheme()` says http.
+- The session cookie is `Secure` once HTTPS is detected: tests over plain http must pass the cookie by hand.
+- `sr_api_guard()` compares host **names** only: NPM forwards `Host: $host`, without the port.
+
 ## IANSEO behaviour the code relies on (checked in the sources)
 
 - **ListLoad**:

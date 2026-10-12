@@ -47,6 +47,42 @@ IANSEO updates never touch `Modules/Custom/`, so the module stays installed.
 
 If IANSEO is behind the Cloudflare proxy, tick the matching option so that rate limiting uses the visitor's real address.
 
+## Putting IANSEO online safely
+
+IANSEO's public release has **no login**. Its IP lock only applies inside a competition: the home page, **creating a competition**, **updating IANSEO**, and through a new competition the installation-wide settings (SMTP, Turnstile keys, module updates) stay open to anyone. Protect the whole site at the reverse proxy and leave only the registration form public.
+
+### Behind Nginx Proxy Manager
+
+1. **Access List** (Access Lists › Add): add users (Authorization) and/or allowed IPs (Access). With both, "Satisfy Any" lets in either a known IP or a password. Select it on the IANSEO proxy host. Force SSL.
+2. **Proxy host › Advanced**: the form files are served without the Access List. NPM only applies the list to `location /`; this block is matched first.
+
+```nginx
+# Public registration form (the rest of IANSEO keeps the Access List)
+location ~ ^/Modules/Custom/SelfRegistration/(register\.php|register-api\.php|register-logo\.php|register\.js|register\.css|i18n\.js)$ {
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $x_forwarded_proto;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP $remote_addr;
+    # $uri, normalised by nginx: IANSEO receives exactly the file matched here
+    proxy_pass $forward_scheme://$server:$port$uri$is_args$args;
+}
+```
+
+3. **In IANSEO's Apache** (container or server), so that IANSEO and the module see the visitor's address and HTTPS instead of the proxy's. Otherwise all visitors share one rate limit, the form says "unavailable" (no HTTPS), and IANSEO's IP lock sees a single address. Replace `172.16.0.0/12` with the network of the proxy (Docker networks are in this range):
+
+```apache
+# a2enmod remoteip
+RemoteIPHeader X-Real-IP
+RemoteIPInternalProxy 172.16.0.0/12
+SetEnvIfExpr "%{CONN_REMOTE_ADDR} -ipmatch '172.16.0.0/12' && %{HTTP:X-Forwarded-Proto} == 'https'" HTTPS=on
+```
+
+4. **Check**:
+   - The IANSEO container port must not be reachable from the Internet: only NPM talks to it.
+   - From a private window, `https://your-site/` must ask for the password, and `…/Modules/Custom/SelfRegistration/register.php?c=CODE` must open the form.
+
+If IANSEO runs on the same machine as the proxy without Docker, it sees every visitor as `127.0.0.1`. IANSEO gives `127.0.0.1` all rights, and the module allows plain http for it. The Access List is then the only protection: never expose IANSEO's own port.
+
 ## Development
 
 ```sh
@@ -94,6 +130,22 @@ Module IANSEO qui permet aux archers de s'inscrire eux-mêmes en ligne à une co
 1. Télécharger `SelfRegistration.zip` depuis la [dernière release](https://github.com/yet-another-quentin/ianseo-self-registration/releases/latest).
 2. Décompresser l'archive dans le dossier `Modules/Custom/` d'IANSEO, pour obtenir `Modules/Custom/SelfRegistration/index.php`.
 3. Ouvrir une compétition. Le module se trouve dans **Participants › Inscriptions en ligne**.
+
+### Mise en ligne sécurisée
+
+La version publique d'IANSEO n'a **pas de connexion**. Son verrouillage par IP ne s'applique qu'à l'intérieur d'une compétition. Restent donc ouverts à tous :
+- l'accueil ;
+- la **création d'une compétition** ;
+- la **mise à jour d'IANSEO** ;
+- par une nouvelle compétition, les réglages de toute l'installation (SMTP, clés Turnstile, mises à jour des modules).
+
+Il faut protéger tout le site au niveau du reverse proxy et ne laisser public que le formulaire. Avec Nginx Proxy Manager (configurations complètes dans la partie anglaise) :
+1. Créer une **Access List** (utilisateurs et/ou IP autorisées, « Satisfy Any » pour accepter l'un ou l'autre), la sélectionner sur le proxy host d'IANSEO et forcer le SSL.
+2. Dans l'onglet **Advanced** du proxy host, ajouter le bloc `location` qui laisse publics les 6 fichiers du formulaire.
+3. Dans l'**Apache d'IANSEO**, activer `mod_remoteip` et la détection du HTTPS. Sinon tous les visiteurs ont la même adresse, la même limite de tentatives, et le formulaire se croit en HTTP.
+4. **Vérifier** :
+   - Le port du conteneur IANSEO ne doit pas être accessible depuis Internet.
+   - En navigation privée, le site demande le mot de passe et le lien du formulaire s'ouvre sans.
 
 ### Utilisation
 
