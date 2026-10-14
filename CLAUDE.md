@@ -38,7 +38,7 @@ The module writes only to its own tables `SelfRegRequests` (one row per requeste
 
 In `SelfRegistration/`:
 - `core.php`: pure logic, tested by `tests/core.test.php`:
-  - input checks (license `6 digits + letter`, date, email);
+  - input checks (license `6 or 7 digits + letter`, date, email); old 6-digit licenses now have a leading 0, so `sr_license_variants()` looks up both forms;
   - `sr_availability()`: free places and quotas per session for a division;
   - `sr_check_request()`;
   - `sr_build_lines()`.

@@ -4,13 +4,22 @@
  * "List load" lines. Tested by tests/core.test.php.
  */
 
-// French license: 6 digits + 1 letter (spaces, dots and dashes are ignored).
+// French license: 6 or 7 digits + 1 letter (spaces, dots and dashes are ignored).
 function sr_norm_license($s) {
 	return strtoupper(preg_replace('/[\s.\-]/', '', (string)$s));
 }
 
 function sr_valid_license($s) {
-	return (bool)preg_match('/^[0-9]{6}[A-Z]$/', sr_norm_license($s));
+	return (bool)preg_match('/^[0-9]{6,7}[A-Z]$/', sr_norm_license($s));
+}
+
+// Old 6-digit licenses now carry a leading 0: both forms name the same archer, whichever one the archer types
+// or the lookup table holds.
+function sr_license_variants($s) {
+	$s = sr_norm_license($s);
+	if (preg_match('/^[0-9]{6}[A-Z]$/', $s)) return array('0' . $s, $s);
+	if (preg_match('/^0([0-9]{6}[A-Z])$/', $s, $m)) return array($s, $m[1]);
+	return array($s);
 }
 
 // Real calendar date, yyyy-mm-dd.

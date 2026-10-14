@@ -19,6 +19,11 @@ check('license lower case and spaces', sr_valid_license(' 123 456-a '), true);
 check('license normalised', sr_norm_license(' 123.456-a'), '123456A');
 check('license too short', sr_valid_license('12345A'), false);
 check('license no letter', sr_valid_license('1234567'), false);
+check('license 7 digits', sr_valid_license('1041458U'), true);
+check('license too long', sr_valid_license('12345678A'), false);
+check('license variants 6 digits', sr_license_variants('405719z'), array('0405719Z', '405719Z'));
+check('license variants leading 0', sr_license_variants('0405719Z'), array('0405719Z', '405719Z'));
+check('license variants 7 digits', sr_license_variants('1041458U'), array('1041458U'));
 check('license injection', sr_valid_license("123456A\t##TARGET##"), false);
 
 check('date ok', sr_valid_date('2010-02-01'), true);

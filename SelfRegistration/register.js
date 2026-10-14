@@ -147,7 +147,7 @@
       h('h2', null, t('identify.title')),
       h('p', { class: 'sr-muted' }, t('identify.help')),
       h('label', null, t('identify.license'),
-        h('input', { id: 'sr-license', name: 'license', autocomplete: 'off', inputmode: 'text', maxlength: '12', required: true, placeholder: '123456A', value: state.license,
+        h('input', { id: 'sr-license', name: 'license', autocomplete: 'off', inputmode: 'text', maxlength: '12', required: true, placeholder: '1234567A', value: state.license,
           oninput: e => { state.license = e.target.value; } })),
       h('label', null, t('identify.dob'),
         h('input', { id: 'sr-dob', name: 'dob', type: 'date', required: true, value: state.dob, max: new Date().toISOString().slice(0, 10),
@@ -186,7 +186,7 @@
   async function verify() {
     if (state.busy) return;
     const license = state.license.replace(/[\s.\-]/g, '').toUpperCase();
-    if (!/^[0-9]{6}[A-Z]$/.test(license)) return setMessage(t('err.licenseFormat'));
+    if (!/^[0-9]{6,7}[A-Z]$/.test(license)) return setMessage(t('err.licenseFormat'));
     if (!/^\d{4}-\d{2}-\d{2}$/.test(state.dob)) return setMessage(t('err.dobFormat'));
     if (!state.captcha) return setMessage(t('err.captchaPending'));
     state.busy = true;

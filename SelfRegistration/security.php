@@ -108,7 +108,7 @@ function sr_turnstile_verify($token, $ip) {
 // ---------- rate limiting (SelfRegAttempts, rows older than 24 h purged) ----------
 
 function sr_rate_key($license) {
-	return hash('sha256', 'sr|' . sr_norm_license($license));
+	return hash('sha256', 'sr|' . sr_license_variants($license)[0]);
 }
 
 function sr_rate_count($type, $field, $value, $seconds, $failedOnly = false) {

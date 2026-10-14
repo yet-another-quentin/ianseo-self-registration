@@ -328,14 +328,20 @@ function sr_offer($TourId, $settings) {
 
 // ---------- license database ----------
 
+// SQL list of the forms of a license (sr_license_variants()).
+function sr_license_in($code) {
+	return implode(',', array_map('StrSafe_DB', sr_license_variants($code)));
+}
+
 /**
- * License + birth date check. Same lookup as Partecipants/ListLoad.php (exact LueCode, competition IOC code,
- * ORDER BY LueDefault DESC), so the import finds the same archer. Returns null when unknown or when the birth date
+ * License + birth date check. Same lookup as Partecipants/ListLoad.php (LueCode, competition IOC code,
+ * ORDER BY LueDefault DESC), but on both forms of the license; the code returned is the table's, so the import finds
+ * the same archer. Returns null when unknown or when the birth date
  * does not match: callers must not tell the two cases apart.
  * Validity like Partecipants/SearchArcher.php: status 5 when the license expires before the competition.
  */
 function sr_lookup($tour, $code, $dob) {
-	$q = safe_r_sql("select * from LookUpEntries where LueCode=" . StrSafe_DB(sr_norm_license($code))
+	$q = safe_r_sql("select * from LookUpEntries where LueCode in (" . sr_license_in($code) . ")"
 		. " and LueIocCode=" . StrSafe_DB($tour->ToIocCode) . " order by LueDefault desc limit 1");
 	$r = safe_fetch($q);
 	if (!$r or !$r->LueCtrlCode or $r->LueCtrlCode === '0000-00-00' or !hash_equals((string)$r->LueCtrlCode, (string)$dob)) return null;
@@ -435,11 +441,11 @@ function sr_usage($TourId) {
 // Sessions in which this license already has an entry or a pending/validated request.
 function sr_taken_sessions($TourId, $code) {
 	$TourId = intval($TourId);
-	$code = StrSafe_DB(sr_norm_license($code));
+	$codes = sr_license_in($code);
 	$taken = array();
-	$q = safe_r_sql("select distinct QuSession from Entries inner join Qualifications on QuId=EnId where EnTournament=$TourId and EnCode=$code");
+	$q = safe_r_sql("select distinct QuSession from Entries inner join Qualifications on QuId=EnId where EnTournament=$TourId and EnCode in ($codes)");
 	while ($r = safe_fetch($q)) $taken[intval($r->QuSession)] = true;
-	$q = safe_r_sql("select distinct SrSession from SelfRegRequests where SrTournament=$TourId and SrCode=$code and SrStatus in (0, 1)");
+	$q = safe_r_sql("select distinct SrSession from SelfRegRequests where SrTournament=$TourId and SrCode in ($codes) and SrStatus in (0, 1)");
 	while ($r = safe_fetch($q)) $taken[intval($r->SrSession)] = true;
 	return array_keys($taken);
 }
