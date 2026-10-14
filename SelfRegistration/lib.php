@@ -51,6 +51,7 @@ function sr_t($key, $params = array()) {
 			'adminOnly' => 'Administrator only',
 			'unknownAction' => 'Unknown action',
 			'invalid' => 'Invalid data',
+			'invalidUrl' => 'Invalid address: https://… without ? or #',
 			'channelInvalid' => 'Invalid channel',
 			'repoMissing' => 'Repository not configured',
 			'connection' => 'connection failed',
@@ -76,6 +77,7 @@ function sr_t($key, $params = array()) {
 			'adminOnly' => 'Réservé à l\'administrateur',
 			'unknownAction' => 'Action inconnue',
 			'invalid' => 'Données invalides',
+			'invalidUrl' => 'Adresse invalide : https://… sans ? ni #',
 			'channelInvalid' => 'Canal invalide',
 			'repoMissing' => 'Dépôt non configuré',
 			'connection' => 'connexion impossible',
@@ -581,7 +583,15 @@ function sr_module_url($file) {
 	return getMyScheme() . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/') . '/' . $file;
 }
 
-function sr_public_url($code) {
+// Public address of the form set by the administrator (e.g. https://inscription.club.fr/, README), or ''.
+function sr_form_url() {
+	return (string)sr_param_get(0, 'formUrl', '');
+}
+
+// Link to the form of a competition. For an email ($mail), '' when the site address is not known yet.
+function sr_public_url($code, $mail = false) {
+	if (($form = sr_form_url()) !== '') return $form . rawurlencode($code);
+	if ($mail) return sr_mail_url('register.php?c=' . rawurlencode($code));
 	return (sr_base_url() ?: sr_module_url('')) . 'register.php?c=' . rawurlencode($code);
 }
 
@@ -631,6 +641,7 @@ function sr_context($TourId) {
 		'trustCf' => (bool)sr_param_get(0, 'trustCf', false),
 		'https' => (sr_is_https() || sr_is_local()),
 		'publicUrl' => sr_public_url($tour->ToCode),
+		'formUrl' => $isAdmin ? sr_form_url() : '',
 		'isAdmin' => $isAdmin,
 		'channel' => sr_channel(),
 		'version' => $version['version'],
@@ -719,7 +730,7 @@ function sr_mail_vars($tour, $rows, $lang) {
 		'reference' => strtoupper(substr($first->SrGroup, 0, 8)),
 		'comment' => (string)$first->SrComment,
 		'email' => (string)$first->SrEmail,
-		'formUrl' => sr_mail_url('register.php?c=' . rawurlencode($tour->ToCode)),
+		'formUrl' => sr_public_url($tour->ToCode, true),
 	);
 }
 

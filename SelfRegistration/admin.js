@@ -21,6 +21,7 @@
   const state = {
     draft: null, filter: 'pending', selected: new Set(), busy: false, flash: '', flashErr: false,
     ts: { site: ctx.turnstileSite, secret: '', trustCf: ctx.trustCf },
+    formUrl: ctx.formUrl || '',
     channel: ctx.channel || 'stable', update: null, updateMsg: '',
   };
 
@@ -92,6 +93,14 @@
     run(async () => {
       const res = await api('turnstile', state.ts);
       state.ts.secret = '';
+      return res;
+    }, t('admin.saved'));
+  }
+
+  function saveFormUrl() {
+    run(async () => {
+      const res = await api('formUrl', { url: state.formUrl });
+      state.formUrl = res.formUrl || '';
       return res;
     }, t('admin.saved'));
   }
@@ -195,6 +204,7 @@
       renderSettings(),
       renderPlaces(),
       renderRequests(),
+      ctx.isAdmin ? renderFormUrl() : '',
       ctx.isAdmin ? renderTurnstile() : '',
     ].join('');
     bind();
@@ -366,6 +376,16 @@
     </div>`;
   }
 
+  function renderFormUrl() {
+    return `<div class="sr-box"><h3>${th('formUrl.title')}</h3>
+      <div class="sr-muted sr-small">${th('formUrl.help')}</div>
+      <div class="sr-row">
+        <input type="url" id="sr-form-url" autocomplete="off" placeholder="https://inscription.example.org/" value="${esc(state.formUrl)}" style="width:24em">
+        <button type="button" id="sr-form-url-save" ${state.busy ? 'disabled' : ''}>${th('settings.save')}</button>
+      </div>
+    </div>`;
+  }
+
   function renderTurnstile() {
     const ts = state.ts;
     return `<div class="sr-box"><h3>${th('turnstile.title')}</h3>
@@ -442,6 +462,8 @@
     on('sr-ts-secret', 'input', e => { state.ts.secret = e.target.value; });
     on('sr-ts-cf', 'change', e => { state.ts.trustCf = e.target.checked; });
     on('sr-ts-save', 'click', saveTurnstile);
+    on('sr-form-url', 'input', e => { state.formUrl = e.target.value; });
+    on('sr-form-url-save', 'click', saveFormUrl);
 
     on('sr-channel', 'change', e => setChannel(e.target.value));
     on('sr-update-check', 'click', () => checkUpdate(true));

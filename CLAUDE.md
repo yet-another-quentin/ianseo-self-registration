@@ -83,6 +83,7 @@ In `SelfRegistration/`:
   - Rows are claimed with one `UPDATE … where SrNotified=0` (`sr_claim()`) before the email is queued: concurrent admin calls never send twice.
   - `sr_set_status()` resets it whenever the status changes (refused after validated gets its refusal email).
 - **Links in emails** (`formUrl`, `adminUrl`) come from `sr_base_url()`, remembered by the admin pages (over HTTPS, or the first time), never from a visitor's `Host` header. Unknown address → the link is left out (`{?adminUrl}` block).
+  - `formUrl` (installation-wide, `AclRoot`, checked by `sr_valid_form_url()`) is a short public address of the form, e.g. a sub-domain whose proxy maps `/CODE` to `register.php?c=CODE` (README › Short address for the form). When set, `sr_public_url()` returns it + code, for the admin page and emails. The form itself only uses relative URLs: keep it that way.
 - **Email language**: `register.js` sends the form's language (`lang`), stored in `SrLang`.
 - The public form language: `sr_lang(true)` (Lang, IANSEO cookie, then browser languages by primary subtag). IANSEO's `SelectLanguage()` only knows exact codes (`fr-FR` alone → English) and prefers the competition's print language.
 - `sr_json()` sends `Content-Length`: Mailer sends emails after the answer, and without PHP-FPM the browser needs the length to stop waiting.
@@ -118,7 +119,7 @@ In `SelfRegistration/`:
 
 - Parameters are stored like `setModuleParameter()` does (serialized), but the value is always a JSON string. `sr_param_get/set($TourId, …)` use direct SQL, with TourId 0 = installation-wide.
 - Per competition: `settings` (open, deadline, sessions, divisions, quotas, allowFace).
-- Installation-wide: `turnstile` (site/secret, never exported with a competition), `trustCf`, `channel`, `updateCheck`, `schema`.
+- Installation-wide: `turnstile` (site/secret, never exported with a competition), `trustCf`, `formUrl`, `channel`, `updateCheck`, `schema`.
 - `MpParameter` is at most 30 characters.
 
 ## Releases and self-update

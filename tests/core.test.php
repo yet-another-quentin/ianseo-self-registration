@@ -36,6 +36,17 @@ check('email with + refused like ListLoad', (bool)sr_valid_email('jean+arc@club.
 check('email with tab', (bool)sr_valid_email("a@b.fr\t##X##"), false);
 check('email too long', (bool)sr_valid_email(str_repeat('a', 95) . '@b.fr'), false);
 
+check('form url sub-domain', sr_valid_form_url(' https://Inscription.Club.fr '), 'https://inscription.club.fr/');
+check('form url path kept', sr_valid_form_url('https://club.fr/inscription//'), 'https://club.fr/inscription/');
+check('form url port kept', sr_valid_form_url('https://club.fr:8443'), 'https://club.fr:8443/');
+check('form url cleared', sr_valid_form_url(''), '');
+check('form url http refused', sr_valid_form_url('http://club.fr/'), null);
+check('form url http localhost', sr_valid_form_url('http://localhost:8089/'), 'http://localhost:8089/');
+check('form url query refused', sr_valid_form_url('https://club.fr/?c=X'), null);
+check('form url credentials refused', sr_valid_form_url('https://a:b@club.fr/'), null);
+check('form url other scheme', sr_valid_form_url('javascript:alert(1)//x'), null);
+check('form url quote', sr_valid_form_url('https://club.fr/"><b>'), null);
+
 check('comment tags stripped', sr_clean_text('<script>alert(1)</script>Bonjour'), 'alert(1)Bonjour');
 check('comment length', mb_strlen(sr_clean_text(str_repeat('é', 600))), 500);
 check('line value separators', sr_line_value("a\tb;c\nd"), 'a b c d');

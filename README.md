@@ -83,6 +83,47 @@ SetEnvIfExpr "%{CONN_REMOTE_ADDR} -ipmatch '172.16.0.0/12' && %{HTTP:X-Forwarded
 
 If IANSEO runs on the same machine as the proxy without Docker, it sees every visitor as `127.0.0.1`. IANSEO gives `127.0.0.1` all rights, and the module allows plain http for it. The Access List is then the only protection: never expose IANSEO's own port.
 
+### Short address for the form
+
+Instead of `…/Modules/Custom/SelfRegistration/register.php?c=TEST26`, archers can get `https://inscription.example.org/TEST26`. The form only uses relative addresses, so a sub-domain that serves the form files at its root is enough.
+
+1. **DNS**: point `inscription.example.org` to the proxy.
+2. **NPM**: add a second proxy host for `inscription.example.org`. Forward it to the same IANSEO container, with a Let's Encrypt certificate and Force SSL. No Access List is needed: the last block below answers 404 to everything except the form. Put this in **Advanced**:
+
+```nginx
+# Registration form only: / lists the open competitions, /CODE opens the form of a competition
+location = / {
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $x_forwarded_proto;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_pass $forward_scheme://$server:$port/Modules/Custom/SelfRegistration/register.php$is_args$args;
+}
+location ~ ^/([A-Za-z0-9_-]+)$ {
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $x_forwarded_proto;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_pass $forward_scheme://$server:$port/Modules/Custom/SelfRegistration/register.php?c=$1&$args;
+}
+# Files the form loads with relative addresses
+location ~ ^/(register\.php|register-api\.php|register-logo\.php|register\.js|register\.css|i18n\.js)$ {
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $x_forwarded_proto;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_pass $forward_scheme://$server:$port/Modules/Custom/SelfRegistration/$1$is_args$args;
+}
+# Nothing else of IANSEO on this sub-domain (regex locations win over NPM's "location /")
+location ~ . {
+    return 404;
+}
+```
+
+3. **Turnstile**: add the sub-domain to the hostnames of the widget (Cloudflare dashboard › Turnstile).
+4. **Module page** (administrator): enter `https://inscription.example.org/` in **Public address of the form**. The public link shown on the page and the links in emails then use it.
+5. **Check** from a private window: `https://inscription.example.org/TEST26` opens the form and a request goes through, and `https://inscription.example.org/index.php` answers 404.
+
 ## Development
 
 ```sh
@@ -146,6 +187,15 @@ Il faut protéger tout le site au niveau du reverse proxy et ne laisser public q
 4. **Vérifier** :
    - Le port du conteneur IANSEO ne doit pas être accessible depuis Internet.
    - En navigation privée, le site demande le mot de passe et le lien du formulaire s'ouvre sans.
+
+### Adresse courte du formulaire
+
+Au lieu de `…/Modules/Custom/SelfRegistration/register.php?c=TEST26`, les archers peuvent recevoir `https://inscription.example.org/TEST26`. Le formulaire n'utilise que des adresses relatives : il suffit d'un sous-domaine qui sert les fichiers du formulaire à sa racine (configuration complète dans la partie anglaise).
+1. **DNS** : faire pointer `inscription.example.org` vers le proxy.
+2. **NPM** : créer un second proxy host pour ce sous-domaine, vers le même conteneur IANSEO, avec certificat Let's Encrypt et Force SSL. Pas besoin d'Access List : le bloc **Advanced** ne laisse passer que le formulaire et répond 404 à tout le reste.
+3. **Turnstile** : ajouter le sous-domaine aux noms d'hôte du widget.
+4. **Page du module** (administrateur) : saisir `https://inscription.example.org/` dans **Adresse publique du formulaire**. Le lien public affiché et les liens des emails l'utilisent alors.
+5. **Vérifier** en navigation privée que `https://inscription.example.org/TEST26` ouvre le formulaire et qu'une demande passe, et que `https://inscription.example.org/index.php` répond 404.
 
 ### Utilisation
 

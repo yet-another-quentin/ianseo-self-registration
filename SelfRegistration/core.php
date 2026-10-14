@@ -42,6 +42,23 @@ function sr_clean_text($s, $max = 500) {
 	return mb_substr(trim($s), 0, $max);
 }
 
+/**
+ * Public address of the form chosen by the administrator (a short sub-domain served by the reverse proxy, README):
+ * https (http for localhost only), no credentials, query or fragment. Returns it with a final "/" — the competition
+ * code is appended to it — or null; '' clears the setting.
+ */
+function sr_valid_form_url($s) {
+	$s = trim((string)$s);
+	if ($s === '') return '';
+	if (strlen($s) > 200 or !preg_match('#^https?://[^\s<>"\'\\\\]+$#i', $s)) return null;
+	$u = parse_url($s);
+	if (!$u or empty($u['host']) or isset($u['user']) or isset($u['pass']) or isset($u['query']) or isset($u['fragment'])) return null;
+	$scheme = strtolower($u['scheme']);
+	$host = strtolower($u['host']);
+	if ($scheme === 'http' and $host !== 'localhost' and $host !== '127.0.0.1') return null;
+	return $scheme . '://' . $host . (isset($u['port']) ? ':' . $u['port'] : '') . rtrim($u['path'] ?? '', '/') . '/';
+}
+
 // Value inserted in a "List load" line: ListLoad splits on tab, newline and ";" — none may get through.
 function sr_line_value($s) {
 	return trim(str_replace(array("\t", "\r", "\n", ';'), ' ', (string)$s));

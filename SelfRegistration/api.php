@@ -1,7 +1,8 @@
 <?php
 /*
  * Self registration — JSON API of the administration page.
- * Same rights as Partecipants/ListLoad.php; Turnstile keys and module updates require administrator rights.
+ * Same rights as Partecipants/ListLoad.php; Turnstile keys, the public address of the form and module updates require
+ * administrator rights.
  */
 require_once(dirname(__FILE__, 4) . '/config.php');
 require_once(__DIR__ . '/lib.php');
@@ -61,6 +62,13 @@ try {
 			// an empty secret keeps the stored one (it is never sent back to the page), unless the keys are cleared
 			sr_param_set(0, 'turnstile', array('site' => $site, 'secret' => $site === '' ? '' : ($secret !== '' ? $secret : $keys['secret'])));
 			sr_param_set(0, 'trustCf', !empty($in['trustCf']));
+			JsonOut(sr_context($TourId));
+
+		case 'formUrl':
+			sr_require_admin();
+			$url = sr_valid_form_url($in['url'] ?? '');
+			if ($url === null) JsonOut(array('error' => sr_t('invalidUrl')));
+			sr_param_set(0, 'formUrl', $url);
 			JsonOut(sr_context($TourId));
 
 		case 'validate':
