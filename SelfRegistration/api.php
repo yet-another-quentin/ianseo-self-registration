@@ -47,8 +47,9 @@ try {
 				'divisions' => array_values(array_intersect($divisions, array_map('strval', (array)($s['divisions'] ?? array())))),
 				'quotas' => $quotas ?: new stdClass(),
 				'allowFace' => !empty($s['allowFace']),
+				'waitlist' => !empty($s['waitlist']),
 				'mails' => array_map(function ($k) use ($s) { return !empty($s['mails'][$k]); },
-					array('received' => 'received', 'validated' => 'validated', 'refused' => 'refused', 'organiser' => 'organiser')),
+					array('received' => 'received', 'validated' => 'validated', 'promoted' => 'promoted', 'refused' => 'refused', 'organiser' => 'organiser')),
 			));
 			JsonOut(sr_context($TourId));
 
@@ -72,7 +73,7 @@ try {
 			JsonOut(sr_context($TourId));
 
 		case 'validate':
-			// lines for Partecipants/ListLoad.php; the requests are marked validated
+			// lines for Partecipants/ListLoad.php; the requests (pending or on the waiting list) are marked validated
 			JsonOut(sr_validate($TourId, $in['ids'] ?? array()));
 
 		case 'refuse':
@@ -82,6 +83,14 @@ try {
 
 		case 'reset':
 			sr_set_status($TourId, $in['ids'] ?? array(), 0);
+			JsonOut(sr_context($TourId));
+
+		case 'note':
+			sr_set_note($TourId, $in['group'] ?? '', $in['note'] ?? '');
+			JsonOut(sr_context($TourId));
+
+		case 'priority':
+			sr_set_priority($TourId, $in['ids'] ?? array(), intval($in['priority'] ?? 0));
 			JsonOut(sr_context($TourId));
 
 		case 'purge':

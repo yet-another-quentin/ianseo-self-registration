@@ -11,7 +11,8 @@ $SKIP_AUTH = true;
 require_once(dirname(__FILE__, 4) . '/config.php');
 require_once(__DIR__ . '/lib.php');
 
-// Books the requested sessions (one pending request per session). Caller holds the competition lock.
+// Books the requested sessions: one request per session, pending, or on the waiting list for the full sessions the
+// archer accepted to wait for ($req['waitlist']). Caller holds the competition lock.
 function sr_book($tour, $archer, $settings, $req, $comment, $lang) {
 	$TourId = intval($tour->ToId);
 	$offer = sr_archer_offer($tour, $archer, $settings);
@@ -24,20 +25,21 @@ function sr_book($tour, $archer, $settings, $req, $comment, $lang) {
 		'sessions' => $division ? array_column($division['sessions'], 'order') : array(),
 	));
 	if ($err) return array('error' => $err);
-	$full = sr_first_unavailable($req['sessions'], $division['sessions']);
-	if ($full) return array('error' => 'err.sessionUnavailable', 'params' => $full, 'offer' => $offer);
+	$plan = sr_plan_sessions($req['sessions'], $req['waitlist'], $division['sessions']);
+	if (isset($plan['unavailable'])) return array('error' => 'err.sessionUnavailable', 'params' => $plan['unavailable'], 'offer' => $offer);
 
 	$face = $settings['allowFace'] ? intval($req['face']) : intval($division['faces'][0]['id'] ?? 0);
 	$group = bin2hex(random_bytes(8));
 	$now = StrSafe_DB(date('Y-m-d H:i:s'));
-	foreach (array_map('intval', $req['sessions']) as $ses) {
+	$status = array_fill_keys($plan['book'], 0) + array_fill_keys($plan['wait'], 3);
+	foreach ($status as $ses => $st) {
 		safe_w_sql("insert into SelfRegRequests set SrTournament=$TourId, SrGroup=" . StrSafe_DB($group)
 			. ", SrCode=" . StrSafe_DB($archer['code']) . ", SrDivision=" . StrSafe_DB($division['id'])
 			. ", SrClass=" . StrSafe_DB($division['class']['id']) . ", SrFace=$face, SrSession=$ses"
 			. ", SrEmail=" . StrSafe_DB($req['email']) . ", SrComment=" . StrSafe_DB($comment)
-			. ", SrLang=" . StrSafe_DB($lang) . ", SrStatus=0, SrCreated=$now");
+			. ", SrLang=" . StrSafe_DB($lang) . ", SrStatus=$st, SrWaited=" . ($st === 3 ? 1 : 0) . ", SrCreated=$now");
 	}
-	return array('ok' => true, 'group' => $group, 'reference' => strtoupper(substr($group, 0, 8)), 'sessions' => array_map('intval', $req['sessions']));
+	return array('ok' => true, 'group' => $group, 'reference' => strtoupper(substr($group, 0, 8)), 'sessions' => $plan['book'], 'waitlist' => $plan['wait']);
 }
 
 try {
@@ -103,6 +105,7 @@ try {
 				'division' => (string)($in['division'] ?? ''),
 				'face' => intval($in['face'] ?? 0),
 				'sessions' => $sessions,
+				'waitlist' => is_array($in['waitlist'] ?? null) ? array_values($in['waitlist']) : array(),
 				'email' => trim((string)($in['email'] ?? '')),
 				'consent' => !empty($in['consent']),
 			);

@@ -69,9 +69,10 @@ function sr_line_value($s) {
  * $sessions: [{order, capacity}]
  * $used:     [session => ['total' => n, 'div' => [DivId => n]]]  (entries + pending requests)
  * $quotas:   [session => [DivId => max]]  (missing or 0 = no quota)
- * Returns [{order, capacity, free, quota, quotaFree, available, reason}] with reason '' | 'full' | 'quota'.
+ * $waitlist: the competition offers a waiting list: a full session (or reached quota) can still be requested.
+ * Returns [{order, capacity, free, quota, quotaFree, available, reason, waitlist}] with reason '' | 'full' | 'quota'.
  */
-function sr_availability($sessions, $used, $quotas, $div) {
+function sr_availability($sessions, $used, $quotas, $div, $waitlist = false) {
 	$out = array();
 	foreach ($sessions as $s) {
 		$o = intval($s['order']);
@@ -85,6 +86,7 @@ function sr_availability($sessions, $used, $quotas, $div) {
 			'order' => $o, 'capacity' => intval($s['capacity']), 'free' => $free,
 			'quota' => $quota, 'quotaFree' => $quotaFree,
 			'available' => $reason === '', 'reason' => $reason,
+			'waitlist' => $waitlist and $reason !== '',
 		);
 	}
 	return $out;
@@ -110,17 +112,40 @@ function sr_check_request($req, $offer) {
 }
 
 /**
- * First session of the request that cannot be booked any more, or null.
+ * Splits the requested sessions into booked ones and waiting-list ones.
+ * A session with a free place is booked, even if the archer expected the waiting list. A full session goes to the
+ * waiting list only when the archer accepted it ($accepted, the sessions shown as "waiting list" in the form):
+ * a session that filled up while the archer was choosing is reported, not silently put on the list.
  * $availability: result of sr_availability() for the requested division.
+ * Returns ['book' => [n…], 'wait' => [n…]] or ['unavailable' => ['order', 'reason']].
  */
-function sr_first_unavailable($sessions, $availability) {
+function sr_plan_sessions($sessions, $accepted, $availability) {
 	$byOrder = array();
 	foreach ($availability as $a) $byOrder[$a['order']] = $a;
+	$accepted = array_map('intval', (array)$accepted);
+	$out = array('book' => array(), 'wait' => array());
 	foreach ($sessions as $s) {
-		$a = $byOrder[intval($s)] ?? null;
-		if (!$a or !$a['available']) return array('order' => intval($s), 'reason' => $a ? $a['reason'] : 'full');
+		$s = intval($s);
+		$a = $byOrder[$s] ?? null;
+		if ($a and $a['available']) $out['book'][] = $s;
+		elseif ($a and !empty($a['waitlist']) and in_array($s, $accepted, true)) $out['wait'][] = $s;
+		else return array('unavailable' => array('order' => $s, 'reason' => $a ? $a['reason'] : 'full'));
 	}
-	return null;
+	return $out;
+}
+
+const SR_PRIORITIES = array(1, 0, -1);   // high, normal, low
+
+/**
+ * Waiting list of a session, in the order places are offered: priority (high first), then first come.
+ * $rows: [{priority, created, id}…]
+ */
+function sr_waitlist_sort($rows) {
+	usort($rows, function ($a, $b) {
+		return array(-intval($a['priority']), (string)$a['created'], intval($a['id']))
+			<=> array(-intval($b['priority']), (string)$b['created'], intval($b['id']));
+	});
+	return $rows;
 }
 
 /**

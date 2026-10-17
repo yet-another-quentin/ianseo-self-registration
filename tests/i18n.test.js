@@ -30,10 +30,11 @@ test('keys built at runtime exist', () => {
     ...['full', 'quota', 'already'].map(s => 'session.' + s),                        // sr_availability() reasons
     ...['deadline', 'over'].map(s => 'alert.closed.' + s),                           // sr_closed_reason()
     ...['deadline', 'over', 'closed'].map(s => 'err.' + s),                          // register-api.php
-    ...['pending', 'validated', 'refused', 'all'].map(s => 'requests.' + s),
-    ...['pending', 'validated', 'refused'].map(s => 'requests.st.' + s),
+    ...['pending', 'waitlist', 'validated', 'refused', 'all'].map(s => 'requests.' + s),
+    ...['pending', 'waitlist', 'validated', 'refused'].map(s => 'requests.st.' + s),
+    ...['high', 'normal', 'low'].map(s => 'priority.' + s),                          // waiting-list priorities
     'update.channel.stable', 'update.channel.nightly',
-    ...['received', 'validated', 'refused', 'organiser'].map(s => 'mails.' + s),     // email settings
+    ...['received', 'validated', 'promoted', 'refused', 'organiser'].map(s => 'mails.' + s),     // email settings
   ];
   assert.deepEqual(keys.filter(k => !(k in I.DICTS.en)), []);
 });

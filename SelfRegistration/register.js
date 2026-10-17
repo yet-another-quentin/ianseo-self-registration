@@ -14,7 +14,7 @@
     license: '', dob: '', captcha: '', widget: null,
     archer: null, offer: null, allowFace: false,
     division: '', face: 0, sessions: new Set(), email: '', comment: '', consent: false,
-    reference: '', booked: [],
+    reference: '', booked: [], waiting: [],
   };
 
   // h('div', {class: 'x', onclick: fn}, 'text', child…): strings become text nodes
@@ -216,8 +216,8 @@
     if (!divs.some(d => d.id === state.division)) state.division = divs.length === 1 ? divs[0].id : '';
     const div = currentDivision();
     if (!div || !div.faces.some(f => f.id === state.face)) state.face = div && div.faces.length ? div.faces[0].id : 0;
-    // drop sessions that became unavailable
-    if (div) for (const s of [...state.sessions]) if (!div.sessions.some(x => x.order === s && x.available)) state.sessions.delete(s);
+    // drop sessions that can no longer be chosen (a session that filled up stays chosen when it offers a waiting list)
+    if (div) for (const s of [...state.sessions]) if (!div.sessions.some(x => x.order === s && (x.available || x.waitlist))) state.sessions.delete(s);
   }
 
   const currentDivision = () => (state.offer ? state.offer.divisions.find(d => d.id === state.division) : null);
@@ -270,19 +270,22 @@
 
   function renderSessions(div) {
     return h('fieldset', null, h('legend', null, t('choose.sessions')),
+      div.sessions.some(s => !s.available && s.waitlist) ? h('p', { class: 'sr-muted sr-small' }, t('choose.waitlistHelp')) : null,
       div.sessions.map(s => {
         const info = sessionInfo(s.order);
+        const wait = !s.available && s.waitlist;
         let detail;
-        if (!s.available) detail = t('session.' + s.reason);
+        if (wait) detail = t('session.waitlist', { reason: t('session.' + s.reason) });
+        else if (!s.available) detail = t('session.' + s.reason);
         else if (s.quotaFree !== null && s.quotaFree < s.free) detail = t('session.quotaFree', { n: s.quotaFree, div: div.name });
         else detail = t('session.free', { n: s.free });
-        return h('label', { class: 'sr-choice' + (s.available ? '' : ' sr-off') },
-          h('input', { type: 'checkbox', name: 'sessions', value: String(s.order), disabled: !s.available, checked: state.sessions.has(s.order),
+        return h('label', { class: 'sr-choice' + (s.available || wait ? '' : ' sr-off') },
+          h('input', { type: 'checkbox', name: 'sessions', value: String(s.order), disabled: !s.available && !wait, checked: state.sessions.has(s.order),
             onchange: e => { e.target.checked ? state.sessions.add(s.order) : state.sessions.delete(s.order); } }),
           h('span', null,
             t('session.label', { n: s.order }) + (info.name ? ' – ' + info.name : ''),
             info.start ? h('span', { class: 'sr-muted' }, ' · ' + fmtDateTime(info.start)) : null,
-            h('span', { class: s.available ? 'sr-badge' : 'sr-badge sr-badge-off' }, detail)));
+            h('span', { class: s.available ? 'sr-badge' : (wait ? 'sr-badge sr-badge-wait' : 'sr-badge sr-badge-off') }, detail)));
       }));
   }
 
@@ -304,8 +307,11 @@
     state.busy = true;
     document.getElementById('sr-submit').disabled = true;
     setMessage('', t('choose.sending'));
+    const sessions = [...state.sessions].sort((a, b) => a - b);
     const res = await api('submit', {
-      division: state.division, face: state.face, sessions: [...state.sessions].sort((a, b) => a - b),
+      division: state.division, face: state.face, sessions,
+      // the full sessions the archer saw as "waiting list": the server books them only on the list
+      waitlist: sessions.filter(o => div.sessions.some(s => s.order === o && !s.available && s.waitlist)),
       email: state.email.trim(), comment: state.comment, consent: state.consent,
     });
     state.busy = false;
@@ -325,6 +331,7 @@
     state.reference = res.reference;
     state.emailSent = !!res.emailSent;
     state.booked = res.sessions;
+    state.waiting = res.waitlist || [];
     state.step = 'done';
     render();
     window.scrollTo(0, 0);
@@ -334,16 +341,22 @@
 
   function renderDone() {
     const div = currentDivision();
+    const list = orders => h('ul', null, orders.map(o => {
+      const info = sessionInfo(o);
+      return h('li', null, t('session.label', { n: o }) + (info.name ? ' – ' + info.name : '') + (info.start ? ' · ' + fmtDateTime(info.start) : ''));
+    }));
+    const waiting = state.waiting.length > 0;
     return h('div', { class: 'sr-card' },
       h('h2', null, t('done.title')),
       h('p', null, t('done.reference', { ref: state.reference })),
-      h('ul', null, state.booked.map(o => {
-        const info = sessionInfo(o);
-        return h('li', null, t('session.label', { n: o }) + (info.name ? ' – ' + info.name : '') + (info.start ? ' · ' + fmtDateTime(info.start) : ''));
-      })),
+      state.booked.length && waiting ? h('strong', null, t('done.sessions')) : null,
+      state.booked.length ? list(state.booked) : null,
+      waiting ? h('strong', null, t('done.waitlist')) : null,
+      waiting ? list(state.waiting) : null,
       div ? h('p', null, t('done.category', { division: div.name, cls: div.class.name })) : null,
       state.emailSent ? h('p', null, t('done.emailSent', { email: state.email.trim() })) : null,
-      h('p', { class: 'sr-alert sr-info' }, t('done.pending')),
+      state.booked.length ? h('p', { class: 'sr-alert sr-info' }, t('done.pending')) : null,
+      waiting ? h('p', { class: 'sr-alert sr-wait' }, t('done.waitlistInfo')) : null,
       h('button', { type: 'button', class: 'sr-link', onclick: () => { state.sessions.clear(); state.comment = ''; restart(); } }, t('done.another')));
   }
 

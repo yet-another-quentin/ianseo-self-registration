@@ -31,6 +31,8 @@
 #sr-admin .sr-table th { background: #f6f5f1; }
 #sr-admin .sr-full td { color: #b3261e; }
 #sr-admin .sr-st-2 td { color: #8a8984; }
+#sr-admin .sr-st-3 td:first-child { box-shadow: inset 3px 0 #c58a00; }
+#sr-admin .sr-note { font: inherit; width: 16em; padding: 3px 6px; border: 1px solid #c9c6be; border-radius: 4px; resize: vertical; }
 #sr-admin .sr-actions { white-space: nowrap; }
 #sr-admin .sr-comment { margin-top: 2px; font-style: italic; color: #555; max-width: 280px; white-space: pre-wrap; }
 #sr-admin .sr-warn-text { color: #9a6700; }

@@ -32,14 +32,17 @@ cd dev && IANSEO_DIR=/path/to/copy docker compose up -d --build && IANSEO_DIR=/p
 **The module never writes to the archer tables.** Validating requests builds "List load" lines (`sr_build_lines()`) that `admin.js` posts to `Partecipants/ListLoad.php` (`txtList`, `TextList=1`, **never** `OverwritePreviousArchers`, which would overwrite an archer's entry in another session). IANSEO imports them and shows its own report. Keep it that way.
 
 The module writes only to its own tables `SelfRegRequests` (one row per requested session) and `SelfRegAttempts` (rate limiting), and to `ModulesParameters`.
-- The tables are created by `sr_ensure_schema()`: bump `SR_SCHEMA` and add the migration there (v2: `SrLang`, `SrNotified`).
+- The tables are created by `sr_ensure_schema()`: bump `SR_SCHEMA` and add the migration there (v2: `SrLang`, `SrNotified`; v3: `SrPriority`, `SrNote`, `SrWaited`).
+- `SrStatus`: 0 pending, 1 validated, 2 refused, 3 waiting list.
 - IANSEO's `tour_delete()` does not know them: `sr_purge_orphans()` (admin page load) removes rows of deleted competitions.
 - Never join module tables to IANSEO tables on string columns: collations may differ on upgraded installs. Query separately (see `sr_requests()`).
 
 In `SelfRegistration/`:
 - `core.php`: pure logic, tested by `tests/core.test.php`:
   - input checks (license `6 or 7 digits + letter`, date, email); old 6-digit licenses now have a leading 0, so `sr_license_variants()` looks up both forms;
-  - `sr_availability()`: free places and quotas per session for a division;
+  - `sr_availability()`: free places and quotas per session for a division, and `waitlist` (full or quota reached, with the waiting list on);
+  - `sr_plan_sessions()`: requested sessions → booked (pending) / waiting list. A full session goes to the waiting list only if the form showed it as such (`waitlist` sent by `register.js`): a session that filled up meanwhile is reported (`err.sessionUnavailable`), a freed one is booked;
+  - `sr_waitlist_sort()`: order of a session's waiting list (priority 1/0/−1, then `SrCreated`), gives `rank` in `sr_requests()`;
   - `sr_check_request()`;
   - `sr_build_lines()`.
 - `lib.php`: database access. Every function takes the competition id explicitly, because the public form has no IANSEO competition session. Also parameters, schema, admin context and self-update (same mechanism as the sister module, prefix `sr_`).
@@ -69,9 +72,19 @@ In `SelfRegistration/`:
   - `admin.js` re-renders through `innerHTML`: every value goes through `esc()`/`th()`.
 - `menu.php`: included by `Common/Menu.php` (`glob Modules/Custom/*/menu.php`) from both `get_which_menu` and `get_which_run_menu`; in the latter `$acl` and `$ret['PART']` may be missing.
 
+## Waiting list
+
+- Setting `waitlist` (per competition, off by default). The deadline only stops new requests: the admin page keeps the waiting list until the competition.
+- Waiting-list rows take no place (`sr_usage()` counts status 0 only) but count as "already" for the archer (`sr_taken_sessions()`).
+- Promotion is manual: **Enter** = `validate` on a status-3 row (`sr_validate()` accepts 0 and 3), same List load import. Places are not checked server-side; `admin.js` (`overfilled()`) asks before going over capacity or quota.
+- Badge: `renderAlerts()` shows the sessions with free places and archers waiting. Computed on each admin load, so entries deleted in IANSEO count too.
+- `SrPriority` is per row (session). `SrNote` is the organiser's private note, set on every row of the submission (`sr_set_note()`, by `SrGroup`): never sent to the public API nor by email. `SrComment` stays the archer's message.
+- `SrWaited=1` (set at booking, never reset) marks a row that went through the waiting list.
+
 ## Emails (optional Mailer module, `../ianseo-mailer`)
 
-- `mailer-templates.php` declares the templates `selfreg.received`, `selfreg.validated`, `selfreg.refused` and `selfreg.new` (organiser). Check it with Mailer's `tests/templates.test.php`.
+- `mailer-templates.php` declares the templates `selfreg.received`, `selfreg.validated`, `selfreg.promoted`, `selfreg.refused` and `selfreg.new` (organiser). Check it with Mailer's `tests/templates.test.php`.
+  - `{sessions}` lists the rows of the email except waiting-list ones; `{waitlist}` the sessions of the submission still on the waiting list (`sr_mail_vars()`).
 - `sr_mailer()` loads `Modules/Custom/Mailer/api.php` only when installed and ready. Without it nothing is sent and nothing fails.
 - Settings `mails.*` (per competition) switch each email on or off.
 - **Acknowledgement** (`sr_notify_received()`, after `submit`): to the archer in the language of the form (`SrLang`), plus the organiser notification to `mailer_contact()`, in the competition's language, with the archer as Reply-To.
@@ -79,6 +92,7 @@ In `SelfRegistration/`:
 - **Validation**: `sr_notify_validated()` runs on every admin page load or API call and notifies a submission once **every** validated session of it has an entry, i.e. once the List load import went through: one email listing all sessions.
   - That is why `admin.js` opens the List load report in another tab and refreshes on return. The tab is opened during the click (`window.open` before the network call), otherwise popup blockers stop it; if it is blocked, the report replaces the page.
   - Only decisions of the last 7 days are notified.
+  - A submission with a row `SrWaited=1` gets `selfreg.promoted` ("place freed") instead of `selfreg.validated` (setting `mails.promoted`).
 - `SrNotified` (1 validated, 2 refused) prevents duplicates.
   - Rows are claimed with one `UPDATE … where SrNotified=0` (`sr_claim()`) before the email is queued: concurrent admin calls never send twice.
   - `sr_set_status()` resets it whenever the status changes (refused after validated gets its refusal email).
@@ -118,7 +132,7 @@ In `SelfRegistration/`:
 ## Persistence
 
 - Parameters are stored like `setModuleParameter()` does (serialized), but the value is always a JSON string. `sr_param_get/set($TourId, …)` use direct SQL, with TourId 0 = installation-wide.
-- Per competition: `settings` (open, deadline, sessions, divisions, quotas, allowFace).
+- Per competition: `settings` (open, deadline, sessions, divisions, quotas, allowFace, waitlist, mails).
 - Installation-wide: `turnstile` (site/secret, never exported with a competition), `trustCf`, `formUrl`, `channel`, `updateCheck`, `schema`.
 - `MpParameter` is at most 30 characters.
 

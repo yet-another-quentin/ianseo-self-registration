@@ -71,9 +71,29 @@ $quotas2 = array(3 => array('BB' => 2));
 $bb = sr_availability($sessions, array(3 => array('total' => 1, 'div' => array('BB' => 1))), $quotas2, 'BB');
 check('quota free shown', array($bb[2]['available'], $bb[2]['quotaFree'], $bb[2]['free']), array(true, 1, 3));
 
-check('first unavailable', sr_first_unavailable(array(3, 1), $co), array('order' => 1, 'reason' => 'quota'));
-check('all available', sr_first_unavailable(array(3), $co), null);
-check('unknown session', sr_first_unavailable(array(9), $co), array('order' => 9, 'reason' => 'full'));
+check('no waiting list by default', array_column($co, 'waitlist'), array(false, false, false));
+check('first unavailable', sr_plan_sessions(array(3, 1), array(), $co), array('unavailable' => array('order' => 1, 'reason' => 'quota')));
+check('all available', sr_plan_sessions(array(3), array(), $co), array('book' => array(3), 'wait' => array()));
+check('unknown session', sr_plan_sessions(array(9), array(9), $co), array('unavailable' => array('order' => 9, 'reason' => 'full')));
+check('waiting list refused when not offered', sr_plan_sessions(array(2), array(2), $co), array('unavailable' => array('order' => 2, 'reason' => 'full')));
+
+// ---------- waiting list ----------
+$coW = sr_availability($sessions, $used, $quotas, 'CO', true);
+check('waiting list on full session and reached quota only', array_column($coW, 'waitlist'), array(true, true, false));
+check('waiting list keeps the reason', array($coW[0]['available'], $coW[0]['reason']), array(false, 'quota'));
+check('mixed request', sr_plan_sessions(array(1, 2, 3), array(1, 2), $coW), array('book' => array(3), 'wait' => array(1, 2)));
+check('session filled meanwhile is reported', sr_plan_sessions(array(2, 3), array(), $coW), array('unavailable' => array('order' => 2, 'reason' => 'full')));
+check('place freed meanwhile is booked', sr_plan_sessions(array(3), array(3), $coW), array('book' => array(3), 'wait' => array()));
+check('waiting list only', sr_plan_sessions(array('2'), array('2'), $coW), array('book' => array(), 'wait' => array(2)));
+
+$wl = sr_waitlist_sort(array(
+	array('id' => 1, 'priority' => 0, 'created' => '2026-10-01 10:00:00'),
+	array('id' => 2, 'priority' => -1, 'created' => '2026-09-01 10:00:00'),
+	array('id' => 3, 'priority' => 1, 'created' => '2026-10-02 10:00:00'),
+	array('id' => 4, 'priority' => 0, 'created' => '2026-09-15 10:00:00'),
+	array('id' => 5, 'priority' => 0, 'created' => '2026-09-15 10:00:00'),
+));
+check('waiting list order: priority, then first come', array_column($wl, 'id'), array(3, 4, 5, 1, 2));
 
 // ---------- request checks ----------
 $offer = array('divisions' => array('CL', 'CO'), 'faces' => array(3, 4), 'allowFace' => true, 'sessions' => array(1, 2, 3));

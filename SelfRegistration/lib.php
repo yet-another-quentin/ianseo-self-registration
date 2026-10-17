@@ -10,7 +10,7 @@
 require_once(__DIR__ . '/core.php');
 
 const SR_MODULE = 'SelfRegistration';
-const SR_SCHEMA = 2;
+const SR_SCHEMA = 3;
 
 // URL of a module asset with a cache buster: version + file time (the version stays 0.0.0-dev in development).
 function sr_asset($file) {
@@ -141,11 +141,14 @@ function sr_settings($TourId) {
 		'divisions' => array_values(array_map('strval', (array)($s['divisions'] ?? array()))),
 		'quotas' => $quotas,
 		'allowFace' => !empty($s['allowFace']),
+		// full sessions (or reached quotas) can still be requested, on a waiting list
+		'waitlist' => !empty($s['waitlist']),
 		// emails sent through the Mailer module, when installed and configured (all on by default)
 		'mails' => array(
 			'received' => !isset($s['mails']['received']) || !empty($s['mails']['received']),
 			'validated' => !isset($s['mails']['validated']) || !empty($s['mails']['validated']),
 			'refused' => !isset($s['mails']['refused']) || !empty($s['mails']['refused']),
+			'promoted' => !isset($s['mails']['promoted']) || !empty($s['mails']['promoted']),
 			'organiser' => !isset($s['mails']['organiser']) || !empty($s['mails']['organiser']),
 		),
 	);
@@ -193,6 +196,13 @@ function sr_ensure_schema() {
 		// v2: language of the form (emails to the archer) and emails sent (1 = validated, 2 = refused); 1060 = column exists
 		safe_w_sql("ALTER TABLE `SelfRegRequests` ADD `SrLang` varchar(5) NOT NULL DEFAULT ''", false, array(1060));
 		safe_w_sql("ALTER TABLE `SelfRegRequests` ADD `SrNotified` tinyint NOT NULL DEFAULT 0", false, array(1060));
+	}
+	if ($version < 3) {
+		// v3: waiting list (SrStatus 3). Priority per session (1 high, 0 normal, -1 low), organiser's private note
+		// (same on every row of a submission), and SrWaited = the request went through the waiting list
+		safe_w_sql("ALTER TABLE `SelfRegRequests` ADD `SrPriority` tinyint NOT NULL DEFAULT 0", false, array(1060));
+		safe_w_sql("ALTER TABLE `SelfRegRequests` ADD `SrNote` varchar(1000) NOT NULL DEFAULT ''", false, array(1060));
+		safe_w_sql("ALTER TABLE `SelfRegRequests` ADD `SrWaited` tinyint NOT NULL DEFAULT 0", false, array(1060));
 	}
 	sr_param_set(0, 'schema', SR_SCHEMA);
 }
@@ -420,7 +430,8 @@ function sr_face_index($TourId, $div, $class, $TfId) {
 
 /**
  * Places taken per session and division: archers already entered (any status, like IANSEO's own session check)
- * plus pending requests. Validated requests are counted through the entries they created.
+ * plus pending requests. Validated requests are counted through the entries they created; the waiting list takes
+ * no place.
  */
 function sr_usage($TourId) {
 	$TourId = intval($TourId);
@@ -440,14 +451,14 @@ function sr_usage($TourId) {
 	return $used;
 }
 
-// Sessions in which this license already has an entry or a pending/validated request.
+// Sessions in which this license already has an entry or a pending/validated/waiting-list request.
 function sr_taken_sessions($TourId, $code) {
 	$TourId = intval($TourId);
 	$codes = sr_license_in($code);
 	$taken = array();
 	$q = safe_r_sql("select distinct QuSession from Entries inner join Qualifications on QuId=EnId where EnTournament=$TourId and EnCode in ($codes)");
 	while ($r = safe_fetch($q)) $taken[intval($r->QuSession)] = true;
-	$q = safe_r_sql("select distinct SrSession from SelfRegRequests where SrTournament=$TourId and SrCode in ($codes) and SrStatus in (0, 1)");
+	$q = safe_r_sql("select distinct SrSession from SelfRegRequests where SrTournament=$TourId and SrCode in ($codes) and SrStatus in (0, 1, 3)");
 	while ($r = safe_fetch($q)) $taken[intval($r->SrSession)] = true;
 	return array_keys($taken);
 }
@@ -463,9 +474,9 @@ function sr_archer_offer($tour, $archer, $settings) {
 		if ($d['para'] and empty($archer['para'])) continue;
 		$class = sr_class_for($tour, $archer['dob'], $archer['sex'], $d['id']);
 		if (!$class) continue;
-		$avail = sr_availability($offer['sessions'], $used, $settings['quotas'], $d['id']);
+		$avail = sr_availability($offer['sessions'], $used, $settings['quotas'], $d['id'], $settings['waitlist']);
 		foreach ($avail as &$a) {
-			if (in_array($a['order'], $taken, true)) { $a['available'] = false; $a['reason'] = 'already'; }
+			if (in_array($a['order'], $taken, true)) { $a['available'] = $a['waitlist'] = false; $a['reason'] = 'already'; }
 		}
 		unset($a);
 		$divisions[] = array(
@@ -503,6 +514,14 @@ function sr_requests($TourId) {
 	$q = safe_r_sql("select TfId, TfName from TargetFaces where TfTournament=$TourId");
 	while ($r = safe_fetch($q)) $faces[intval($r->TfId)] = get_text($r->TfName, 'Tournament', '', true);
 
+	// rank of each waiting-list request in its session (sr_waitlist_sort())
+	$waiting = array();
+	foreach ($rows as $r) {
+		if (intval($r->SrStatus) === 3) $waiting[intval($r->SrSession)][] = array('id' => intval($r->SrId), 'priority' => intval($r->SrPriority), 'created' => $r->SrCreated);
+	}
+	$rank = array();
+	foreach ($waiting as $list) foreach (sr_waitlist_sort($list) as $i => $w) $rank[$w['id']] = $i + 1;
+
 	$out = array();
 	foreach ($rows as $r) {
 		$code = strtoupper($r->SrCode);
@@ -517,20 +536,23 @@ function sr_requests($TourId) {
 			'status' => intval($r->SrStatus), 'created' => date('c', strtotime($r->SrCreated)),
 			'decided' => $r->SrDecided ? date('c', strtotime($r->SrDecided)) : null,
 			'hasEntry' => isset($entries[$code . '|' . intval($r->SrSession)]),
+			'priority' => intval($r->SrPriority), 'note' => (string)$r->SrNote, 'waited' => intval($r->SrWaited) === 1,
+			'rank' => $rank[intval($r->SrId)] ?? null,
 		);
 	}
 	return $out;
 }
 
 /**
- * "List load" lines for pending requests $ids, and marks them validated. Requests whose archer already has an
- * entry in that session are only marked (no second entry).
+ * "List load" lines for pending or waiting-list requests $ids (promoting from the waiting list enters the archer),
+ * and marks them validated. Requests whose archer already has an entry in that session are only marked (no second
+ * entry). Places are not checked: the organiser decides (the admin page warns before going over).
  */
 function sr_validate($TourId, $ids) {
 	$TourId = intval($TourId);
 	$ids = array_values(array_filter(array_map('intval', (array)$ids)));
 	if (!$ids) return array('lines' => array(), 'ids' => array());
-	$q = safe_r_sql("select * from SelfRegRequests where SrTournament=$TourId and SrStatus=0 and SrId in (" . implode(',', $ids) . ") order by SrId");
+	$q = safe_r_sql("select * from SelfRegRequests where SrTournament=$TourId and SrStatus in (0, 3) and SrId in (" . implode(',', $ids) . ") order by SrId");
 	$requests = array();
 	$done = array();
 	while ($r = safe_fetch($q)) {
@@ -561,6 +583,21 @@ function sr_set_status($TourId, $ids, $status) {
 	// when the status changes. MySQL applies the assignments in order: SrNotified is computed with the old SrStatus.
 	safe_w_sql("update SelfRegRequests set SrNotified=if(SrStatus=" . intval($status) . ", SrNotified, 0), SrStatus=" . intval($status)
 		. ", SrDecided=" . ($status ? StrSafe_DB(date('Y-m-d H:i:s')) : 'NULL')
+		. " where SrTournament=" . intval($TourId) . " and SrId in (" . implode(',', $ids) . ")");
+	return safe_w_affected_rows();
+}
+
+// Organiser's private note on a submission (all its rows): never shown to the archer nor sent by email.
+function sr_set_note($TourId, $group, $note) {
+	safe_w_sql("update SelfRegRequests set SrNote=" . StrSafe_DB(sr_clean_text($note, 1000))
+		. " where SrTournament=" . intval($TourId) . " and SrGroup=" . StrSafe_DB((string)$group));
+	return safe_w_affected_rows();
+}
+
+function sr_set_priority($TourId, $ids, $priority) {
+	$ids = array_values(array_filter(array_map('intval', (array)$ids)));
+	if (!$ids or !in_array(intval($priority), SR_PRIORITIES, true)) return 0;
+	safe_w_sql("update SelfRegRequests set SrPriority=" . intval($priority)
 		. " where SrTournament=" . intval($TourId) . " and SrId in (" . implode(',', $ids) . ")");
 	return safe_w_affected_rows();
 }
@@ -716,17 +753,21 @@ function sr_archer_names($tour, $code) {
 
 /**
  * Variables of an email about requests of one submission (one archer, division and face; one row per session).
- * $rows: SelfRegRequests rows.
+ * $rows: SelfRegRequests rows. {sessions} lists them, except waiting-list ones; {waitlist} lists the sessions of the
+ * submission still on the waiting list (so "validated for session 1" is not read as "refused for session 2").
  */
 function sr_mail_vars($tour, $rows, $lang) {
 	$first = $rows[0];
 	$names = sr_archer_names($tour, $first->SrCode);
+	$orders = function ($rows) { return array_map(function ($r) { return $r->SrSession; }, $rows); };
+	$waiting = sr_rows_by_group($tour->ToId, "SrStatus=3 and SrGroup=" . StrSafe_DB($first->SrGroup))[$first->SrGroup] ?? array();
 	return array(
 		'archer.firstName' => $names['firstName'], 'archer.lastName' => $names['lastName'],
 		'archer.license' => $first->SrCode, 'archer.club' => $names['club'],
 		'category' => sr_category_label($tour->ToId, $first->SrDivision, $first->SrClass),
 		'face' => $first->SrFace ? sr_face_name($tour->ToId, $first->SrFace) : '',
-		'sessions' => sr_session_lines($tour->ToId, array_map(function ($r) { return $r->SrSession; }, $rows), $lang),
+		'sessions' => sr_session_lines($tour->ToId, $orders(array_filter($rows, function ($r) { return intval($r->SrStatus) !== 3; })), $lang),
+		'waitlist' => sr_session_lines($tour->ToId, $orders($waiting), $lang),
 		'reference' => strtoupper(substr($first->SrGroup, 0, 8)),
 		'comment' => (string)$first->SrComment,
 		'email' => (string)$first->SrEmail,
@@ -804,9 +845,11 @@ function sr_notify_refused($TourId, $ids) {
  * Validated requests whose entry now exists in IANSEO (the List load import went through): one email per
  * submission. Called on every admin page load and API call. Only requests decided in the last 7 days, so that
  * enabling emails later does not write to archers validated long ago.
+ * A submission with a session taken from the waiting list gets the "place freed" email (selfreg.promoted).
  */
 function sr_notify_validated($TourId) {
-	if (!sr_mailer() or !sr_settings($TourId)['mails']['validated']) return;
+	$mails = sr_settings($TourId)['mails'];
+	if (!sr_mailer() or (!$mails['validated'] and !$mails['promoted'])) return;
 	$tour = sr_tour($TourId);
 	$since = StrSafe_DB(date('Y-m-d H:i:s', time() - 7 * 86400));
 	$groups = sr_rows_by_group($TourId, "SrStatus=1 and SrNotified=0 and SrDecided >= $since");
@@ -822,9 +865,11 @@ function sr_notify_validated($TourId) {
 		// one email per submission, once every validated session of it is in IANSEO (a partly imported request
 		// waits: the archer must not read "session 1 confirmed" as "session 3 refused")
 		foreach ($rows as $r) if (empty($entries[strtoupper($r->SrCode) . '|' . intval($r->SrSession)])) continue 2;
+		$promoted = (bool)array_filter($rows, function ($r) { return intval($r->SrWaited) === 1; });
+		if (!$mails[$promoted ? 'promoted' : 'validated']) continue;
 		if (!sr_claim($rows, 1, 1)) continue;
 		$lang = $rows[0]->SrLang ?: 'fr';
-		if (!mailer_queue('selfreg.validated', $TourId, $rows[0]->SrEmail, sr_mail_vars($tour, $rows, $lang), array('lang' => $lang, 'ref' => $group))) {
+		if (!mailer_queue($promoted ? 'selfreg.promoted' : 'selfreg.validated', $TourId, $rows[0]->SrEmail, sr_mail_vars($tour, $rows, $lang), array('lang' => $lang, 'ref' => $group))) {
 			sr_unclaim($rows, 1);
 		}
 	}

@@ -7,14 +7,15 @@ IANSEO module that lets archers register themselves online to a competition, fro
 - **Per competition**: the organiser opens registration, sets a deadline, and chooses the sessions and bow types offered.
 - **Quotas**: on top of each session's capacity (targets × archers per target), a maximum per bow type and session can be set (e.g. 8 compound archers in session 1).
 - **Competition page**: the form shows the competition as entered in IANSEO: name, organiser, venue, dates, left and right logos, bottom banner, and the schedule of the sessions open for registration.
-- **The archer** enters their license number and date of birth, both checked against IANSEO's license database. They then choose their bow type, possibly their target face, and one or several sessions. Full sessions, and sessions whose quota is reached, cannot be chosen.
-- **Validation by the organiser**: requests stay pending, and their places are held. Validated requests are imported through IANSEO's own **List load** page: one entry per session, with category, target face and email. The module never writes to the archer tables.
+- **The archer** enters their license number and date of birth, both checked against IANSEO's license database. They then choose their bow type, possibly their target face, and one or several sessions. Full sessions, and sessions whose quota is reached, cannot be chosen, unless the waiting list is on.
+- **Waiting list** (optional, per competition): a full session, or one whose quota is reached, can still be requested. The archer joins its waiting list, which holds no place; one request may mix booked and waiting-list sessions. The archer is not shown their rank.
+- **Validation by the organiser**: requests stay pending, and their places are held. Each request can carry a private note of the organiser (e.g. to follow an exchange with the archer before entering them). Validated requests are imported through IANSEO's own **List load** page: one entry per session, with category, target face and email. The module never writes to the archer tables.
 - **Security**:
   - Cloudflare Turnstile anti-robot;
   - license + date of birth check, with no data shown before it and a generic error message;
   - CSRF protection, rate limiting, strict security headers;
   - HTTPS required.
-- **Emails** (with the [Mailer](https://github.com/yet-another-quentin/ianseo-mailer) module): acknowledgement to the archer, validation, refusal, notification of the organiser. Templates are customisable per competition.
+- **Emails** (with the [Mailer](https://github.com/yet-another-quentin/ianseo-mailer) module): acknowledgement to the archer, validation, place freed (entered from the waiting list), refusal, notification of the organiser. Templates are customisable per competition.
 - **Language**: French or English, following IANSEO's language (browser language for visitors).
 
 Tested with IANSEO 2025-02-10 (FR rules).
@@ -43,7 +44,11 @@ IANSEO updates never touch `Modules/Custom/`, so the module stays installed.
    - tick **Open registration**, then save.
 3. **Share the public link** shown on the page (`…/Modules/Custom/SelfRegistration/register.php?c=<competition code>`). Without a code, the page lists the competitions open for registration.
 4. **Requests**: tick them and click **Validate and import**. IANSEO's List load report is shown. Refused requests free their places.
-5. **Targets**: assign them with IANSEO's usual tools.
+5. **Waiting list** (tab of the same name): per session, by priority (high, normal, low, set on each line), then first come.
+   - When a place is freed (refusal, entry deleted in IANSEO), a banner at the top of the page shows the free places and the archers waiting.
+   - **Enter** imports the archer like **Validate and import**, and sends the "place freed" email. Going over the places is possible, after a warning.
+   - The waiting list stays usable after the deadline, until the competition. An archer who withdraws is refused by the organiser.
+6. **Targets**: assign them with IANSEO's usual tools.
 
 If IANSEO is behind the Cloudflare proxy, tick the matching option so that rate limiting uses the visitor's real address.
 
@@ -150,14 +155,15 @@ Module IANSEO qui permet aux archers de s'inscrire eux-mêmes en ligne à une co
 - **Par compétition** : l'organisateur ouvre les inscriptions, fixe une date limite et choisit les départs et les armes proposés.
 - **Quotas** : en plus de la capacité de chaque départ (cibles × archers par cible), on peut fixer un maximum par arme et par départ (ex. 8 CO au départ 1).
 - **Page de la compétition** : le formulaire reprend la compétition telle que saisie dans IANSEO : nom, organisateur, lieu, dates, logos gauche et droit, bandeau du bas, et le programme des départs ouverts.
-- **L'archer** saisit son numéro de licence et sa date de naissance, vérifiés dans la base des licences d'IANSEO. Il choisit ensuite son arme, éventuellement son blason, et un ou plusieurs départs. Un départ complet, ou dont le quota est atteint, n'est pas sélectionnable.
-- **Validation par l'organisateur** : les demandes restent en attente, et leurs places sont réservées. Les demandes validées sont importées par l'écran **Import liste** d'IANSEO lui-même : un participant par départ, avec catégorie, blason et email. Le module n'écrit jamais dans les tables des archers.
+- **L'archer** saisit son numéro de licence et sa date de naissance, vérifiés dans la base des licences d'IANSEO. Il choisit ensuite son arme, éventuellement son blason, et un ou plusieurs départs. Un départ complet, ou dont le quota est atteint, n'est pas sélectionnable, sauf si la liste d'attente est activée.
+- **Liste d'attente** (facultative, par compétition) : un départ complet, ou dont le quota est atteint, peut quand même être demandé. L'archer est inscrit sur sa liste d'attente, qui ne prend pas de place ; une même demande peut mêler départs réservés et départs en liste d'attente. Son rang n'est pas affiché à l'archer.
+- **Validation par l'organisateur** : les demandes restent à valider, et leurs places sont réservées. Chaque demande peut porter une note privée de l'organisateur (par exemple pour suivre un échange avec l'archer avant de l'inscrire). Les demandes validées sont importées par l'écran **Import liste** d'IANSEO lui-même : un participant par départ, avec catégorie, blason et email. Le module n'écrit jamais dans les tables des archers.
 - **Sécurité** :
   - anti-robot Cloudflare Turnstile ;
   - vérification licence + date de naissance, sans aucune donnée affichée avant et avec un message d'erreur générique ;
   - protection CSRF, limitation du nombre de tentatives, en-têtes de sécurité stricts ;
   - HTTPS obligatoire.
-- **Emails** (avec le module [Mailer](https://github.com/yet-another-quentin/ianseo-mailer)) : accusé de réception à l'archer, validation, refus, notification de l'organisateur. Les modèles sont personnalisables par compétition.
+- **Emails** (avec le module [Mailer](https://github.com/yet-another-quentin/ianseo-mailer)) : accusé de réception à l'archer, validation, place libérée (inscription depuis la liste d'attente), refus, notification de l'organisateur. Les modèles sont personnalisables par compétition.
 - **Langue** : français ou anglais selon la langue d'IANSEO (celle du navigateur pour les visiteurs).
 
 ### Prérequis
@@ -206,4 +212,8 @@ Au lieu de `…/Modules/Custom/SelfRegistration/register.php?c=TEST26`, les arch
    - cocher **Ouvrir les inscriptions**, puis enregistrer.
 3. **Diffuser le lien public** affiché sur la page.
 4. **Demandes** : les cocher puis cliquer sur **Valider et importer**. Le rapport d'Import liste d'IANSEO s'affiche. Refuser une demande libère ses places.
-5. **Cibles** : les attribuer avec les outils habituels d'IANSEO.
+5. **Liste d'attente** (onglet du même nom) : par départ, selon la priorité (haute, normale, basse, réglée sur chaque ligne), puis l'ordre d'arrivée.
+   - Quand une place se libère (refus, participant supprimé dans IANSEO), un bandeau en haut de la page indique les places libres et les archers en attente.
+   - **Faire monter** importe l'archer comme **Valider et importer** et envoie l'email « place libérée ». Dépasser les places reste possible, après un avertissement.
+   - La liste d'attente reste utilisable après la date limite, jusqu'à la compétition. Un archer qui se désiste est refusé par l'organisateur.
+6. **Cibles** : les attribuer avec les outils habituels d'IANSEO.

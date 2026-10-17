@@ -20,6 +20,7 @@
 
   const state = {
     draft: null, filter: 'pending', selected: new Set(), busy: false, flash: '', flashErr: false,
+    notes: {},   // notes being typed, per submission (kept across re-renders until saved)
     ts: { site: ctx.turnstileSite, secret: '', trustCf: ctx.trustCf },
     formUrl: ctx.formUrl || '',
     channel: ctx.channel || 'stable', update: null, updateMsg: '',
@@ -28,7 +29,7 @@
   function freshDraft() {
     const s = ctx.settings;
     return {
-      open: s.open, deadline: s.deadline, allowFace: s.allowFace,
+      open: s.open, deadline: s.deadline, allowFace: s.allowFace, waitlist: s.waitlist,
       sessions: new Set(s.sessions), divisions: new Set(s.divisions),
       quotas: JSON.parse(JSON.stringify(s.quotas || {})),
       mails: Object.assign({}, s.mails),
@@ -80,7 +81,7 @@
     const d = state.draft;
     run(async () => {
       const res = await api('settings', { settings: {
-        open: d.open, deadline: d.deadline, allowFace: d.allowFace,
+        open: d.open, deadline: d.deadline, allowFace: d.allowFace, waitlist: d.waitlist,
         sessions: [...d.sessions], divisions: [...d.divisions], quotas: d.quotas, mails: d.mails,
       } });
       ctx = res;
@@ -152,6 +153,43 @@
   function setStatus(action, ids) {
     if (!ids.length) return;
     run(async () => { state.selected.clear(); return api(action, { ids }); }, t('admin.saved'));
+  }
+
+  // Sessions (and bow types with a quota) that entering these waiting-list requests would overfill
+  function overfilled(ids) {
+    const rows = ctx.requests.filter(r => ids.includes(r.id) && r.status === 3);
+    const over = new Set();
+    const count = {};
+    for (const r of rows) {
+      count[r.session] = (count[r.session] || 0) + 1;
+      count[r.session + '|' + r.division] = (count[r.session + '|' + r.division] || 0) + 1;
+      const s = ctx.sessions.find(x => x.order === r.session);
+      const u = ctx.usage[r.session] || { total: 0, div: {} };
+      const quota = (ctx.settings.quotas[r.session] || {})[r.division];
+      if (s && count[r.session] > s.capacity - u.total) over.add(sessionLabel(s));
+      else if (quota && count[r.session + '|' + r.division] > quota - ((u.div || {})[r.division] || 0)) over.add((s ? sessionLabel(s) : r.session) + ' (' + r.division + ')');
+    }
+    return [...over];
+  }
+
+  // Entering from the waiting list = validating: same List load import. The organiser may go over the places.
+  function promote(ids) {
+    if (!ids.length || state.busy) return;
+    const over = overfilled(ids);
+    if (over.length && !window.confirm(t('requests.overConfirm', { list: over.join(', ') }))) return;
+    validate(ids);
+  }
+
+  // Saved on its own (not through run()): a note left while another action is running must not be dropped.
+  // The draft stays in state.notes until the server has it, so a re-render meanwhile keeps the text.
+  function saveNote(group) {
+    if (!(group in state.notes)) return;
+    const note = state.notes[group];
+    api('note', { group, note }).then(res => {
+      ctx = res;
+      if (state.notes[group] === note) delete state.notes[group];
+      flash(t('admin.saved'));
+    }, e => flash(t('admin.failed', { error: e.message }), true)).then(render);
   }
 
   function purge() {
@@ -239,6 +277,12 @@
     if (!ctx.turnstile) a.push(['sr-err', th('alert.noTurnstile')]);
     if (!ctx.https) a.push(['sr-err', th('alert.noHttps')]);
     if (ctx.settings.open && ctx.closed) a.push(['sr-warn', th('alert.closed.' + ctx.closed)]);
+    // places freed (refusal, entry deleted in IANSEO…) while archers wait: the organiser decides who goes up
+    for (const s of ctx.sessions) {
+      const waiting = waitingCount(s.order);
+      const free = Math.max(0, s.capacity - (ctx.usage[s.order] || { total: 0 }).total);
+      if (waiting && free) a.push(['sr-warn', th('alert.waitlistFree', { n: s.order, free, waiting })]);
+    }
     return a.map(([c, m]) => `<div class="sr-alert ${c}">${m}</div>`).join('');
   }
 
@@ -252,6 +296,7 @@
         <label class="sr-chk"><input type="checkbox" id="sr-open" ${d.open ? 'checked' : ''}> ${th('settings.open')}</label>
         <label>${th('settings.deadline')} <input type="date" id="sr-deadline" value="${esc(d.deadline)}"></label>
         <label class="sr-chk"><input type="checkbox" id="sr-allowface" ${d.allowFace ? 'checked' : ''}> ${th('settings.allowFace')}</label>
+        <label class="sr-chk"><input type="checkbox" id="sr-waitlist" ${d.waitlist ? 'checked' : ''}> ${th('settings.waitlist')}</label>
       </div>
       <div class="sr-row sr-link-row">
         <span>${th('settings.publicUrl')}</span>
@@ -286,7 +331,7 @@
     const box = (k, extra) => `<label class="sr-chk"><input type="checkbox" class="sr-mail" value="${k}" ${d.mails[k] ? 'checked' : ''} ${m.installed ? '' : 'disabled'}> ${th('mails.' + k)}${extra || ''}</label>`;
     return `<h4>${th('mails.title')}</h4>${head}
       <div class="sr-cols"><div>
-        ${box('received')}${box('validated')}${box('refused')}
+        ${box('received')}${box('validated')}${box('promoted')}${box('refused')}
         ${box('organiser', m.available ? (m.contact ? ` <span class="sr-muted">(${esc(m.contact)})</span>` : ` <span class="sr-warn-text">${th('mails.noContact', { url: m.url })}</span>`) : '')}
       </div></div>`;
   }
@@ -314,44 +359,72 @@
       </table></div>`;
   }
 
+  const waitingCount = order => ctx.requests.filter(r => r.status === 3 && r.session === order).length;
+
   function renderPlaces() {
     if (!ctx.sessions.length) return '';
     return `<div class="sr-box"><h3>${th('places.title')}</h3>
       <div class="sr-scroll"><table class="sr-table">
-        <tr><th>${th('settings.session')}</th><th>${th('places.capacity')}</th><th>${th('places.taken')}</th><th>${th('places.free')}</th><th>${th('places.byDivision')}</th></tr>
+        <tr><th>${th('settings.session')}</th><th>${th('places.capacity')}</th><th>${th('places.taken')}</th><th>${th('places.free')}</th><th>${th('places.waiting')}</th><th>${th('places.byDivision')}</th></tr>
         ${ctx.sessions.map(s => {
           const u = ctx.usage[s.order] || { total: 0, div: {} };
           const free = Math.max(0, s.capacity - u.total);
-          return `<tr class="${free ? '' : 'sr-full'}"><td>${esc(sessionLabel(s))}</td><td>${s.capacity}</td><td>${u.total}</td><td>${free}</td>
+          return `<tr class="${free ? '' : 'sr-full'}"><td>${esc(sessionLabel(s))}</td><td>${s.capacity}</td><td>${u.total}</td><td>${free}</td><td>${waitingCount(s.order) || ''}</td>
             <td>${Object.keys(u.div || {}).sort().map(k => `<span class="sr-chip">${esc(k)} ${u.div[k]}${(ctx.settings.quotas[s.order] || {})[k] ? '/' + ctx.settings.quotas[s.order][k] : ''}</span>`).join(' ')}</td></tr>`;
         }).join('')}
       </table></div>
       <div class="sr-muted sr-small">${th('places.help')}</div></div>`;
   }
 
-  const STATUS = { 0: 'pending', 1: 'validated', 2: 'refused' };
+  const STATUS = { 0: 'pending', 1: 'validated', 2: 'refused', 3: 'waitlist' };
+  const PRIORITY = { 1: 'high', 0: 'normal', '-1': 'low' };
+
+  // Rows of the current tab; the waiting list in the order places are offered (session, priority, first come)
+  function filteredRows() {
+    const rows = ctx.requests.filter(r => state.filter === 'all' || STATUS[r.status] === state.filter);
+    if (state.filter === 'waitlist') rows.sort((a, b) => a.session - b.session || a.rank - b.rank);
+    return rows;
+  }
+
+  function renderStatus(r) {
+    let s = th('requests.st.' + STATUS[r.status]);
+    if (r.status === 3) {
+      s += `<div class="sr-small">${th('requests.rank', { n: r.rank })}</div>
+        <label class="sr-small">${th('requests.priority')} <select class="sr-prio" data-id="${r.id}" ${state.busy ? 'disabled' : ''}>
+          ${[1, 0, -1].map(p => `<option value="${p}" ${r.priority === p ? 'selected' : ''}>${th('priority.' + PRIORITY[p])}</option>`).join('')}
+        </select></label>`;
+    } else if (r.waited) {
+      s += `<div class="sr-muted sr-small">${th('requests.waited')}</div>`;
+    }
+    if (r.status === 1 && !r.hasEntry) s += `<div class="sr-warn-text">${th('requests.noEntry')}</div>`;
+    return s;
+  }
 
   function renderRequests() {
     const all = ctx.requests;
-    const counts = { pending: 0, validated: 0, refused: 0, all: all.length };
+    const counts = { pending: 0, waitlist: 0, validated: 0, refused: 0, all: all.length };
     for (const r of all) counts[STATUS[r.status]]++;
-    const rows = all.filter(r => state.filter === 'all' || STATUS[r.status] === state.filter);
+    const rows = filteredRows();
     const sel = rows.filter(r => state.selected.has(r.id));
     const sessionsBy = {};
     for (const s of ctx.sessions) sessionsBy[s.order] = s;
+    const tabs = ['pending', 'waitlist', 'validated', 'refused', 'all'].filter(f => f !== 'waitlist' || ctx.settings.waitlist || counts.waitlist);
+    const nPending = sel.filter(r => r.status === 0).length;
+    const nWaiting = sel.filter(r => r.status === 3).length;
     return `<div class="sr-box"><h3>${th('requests.title')}</h3>
-      <div class="sr-row">${['pending', 'validated', 'refused', 'all'].map(f =>
+      <div class="sr-row">${tabs.map(f =>
         `<button type="button" class="sr-tab ${state.filter === f ? 'on' : ''}" data-filter="${f}">${th('requests.' + f)} (${counts[f]})</button>`).join('')}</div>
       ${rows.length ? `<div class="sr-row">
-        <button type="button" class="sr-primary" id="sr-validate-sel" ${sel.filter(r => r.status === 0).length && !state.busy ? '' : 'disabled'}>${th('requests.validateSel', { n: sel.filter(r => r.status === 0).length })}</button>
+        <button type="button" class="sr-primary" id="sr-validate-sel" ${nPending && !state.busy ? '' : 'disabled'}>${th('requests.validateSel', { n: nPending })}</button>
+        ${counts.waitlist ? `<button type="button" class="sr-primary" id="sr-promote-sel" ${nWaiting && !state.busy ? '' : 'disabled'}>${th('requests.promoteSel', { n: nWaiting })}</button>` : ''}
         <button type="button" id="sr-refuse-sel" ${sel.filter(r => r.status !== 2).length && !state.busy ? '' : 'disabled'}>${th('requests.refuseSel')}</button>
-        <button type="button" id="sr-reset-sel" ${sel.filter(r => r.status !== 0).length && !state.busy ? '' : 'disabled'}>${th('requests.resetSel')}</button>
+        <button type="button" id="sr-reset-sel" ${sel.filter(r => r.status === 1 || r.status === 2).length && !state.busy ? '' : 'disabled'}>${th('requests.resetSel')}</button>
         <span class="sr-muted sr-small">${th('requests.validateHelp')}</span>
       </div>
       <div class="sr-scroll"><table class="sr-table sr-requests">
         <tr><th><input type="checkbox" id="sr-all" ${sel.length === rows.length ? 'checked' : ''}></th>
           <th>${th('requests.date')}</th><th>${th('requests.archer')}</th><th>${th('requests.category')}</th><th>${th('requests.face')}</th>
-          <th>${th('settings.session')}</th><th>${th('requests.contact')}</th><th>${th('requests.status')}</th><th></th></tr>
+          <th>${th('settings.session')}</th><th>${th('requests.contact')}</th><th>${th('requests.note')}</th><th>${th('requests.status')}</th><th></th></tr>
         ${rows.map(r => {
           const s = sessionsBy[r.session];
           return `<tr class="sr-st-${r.status}">
@@ -362,9 +435,12 @@
             <td>${esc(r.faceName)}</td>
             <td>${esc(s ? sessionLabel(s) : t('session.label', { n: r.session }))}</td>
             <td>${esc(r.email)}${r.comment ? `<div class="sr-comment">${esc(r.comment)}</div>` : ''}</td>
-            <td>${th('requests.st.' + STATUS[r.status])}${r.status === 1 && !r.hasEntry ? `<div class="sr-warn-text">${th('requests.noEntry')}</div>` : ''}</td>
+            <td><textarea class="sr-note" id="sr-note-${r.id}" data-group="${esc(r.group)}" rows="2" maxlength="1000" placeholder="${esc(t('requests.notePlaceholder'))}">${esc(r.group in state.notes ? state.notes[r.group] : r.note)}</textarea></td>
+            <td>${renderStatus(r)}</td>
             <td class="sr-actions">
               ${r.status === 0 ? `<button type="button" data-act="validate" data-id="${r.id}">${th('requests.validate')}</button>
+                <button type="button" data-act="refuse" data-id="${r.id}">${th('requests.refuse')}</button>`
+                : r.status === 3 ? `<button type="button" data-act="promote" data-id="${r.id}">${th('requests.promote')}</button>
                 <button type="button" data-act="refuse" data-id="${r.id}">${th('requests.refuse')}</button>`
                 : `<button type="button" data-act="reset" data-id="${r.id}">${th('requests.reset')}</button>`}
             </td></tr>`;
@@ -409,6 +485,7 @@
     on('sr-open', 'change', e => { d.open = e.target.checked; });
     on('sr-deadline', 'change', e => { d.deadline = e.target.value; });
     on('sr-allowface', 'change', e => { d.allowFace = e.target.checked; });
+    on('sr-waitlist', 'change', e => { d.waitlist = e.target.checked; });
     app.querySelectorAll('.sr-mail').forEach(el => el.addEventListener('change', () => { d.mails[el.value] = el.checked; }));
     app.querySelectorAll('.sr-ses').forEach(el => el.addEventListener('change', () => {
       const n = parseInt(el.value, 10);
@@ -443,19 +520,27 @@
       render();
     }));
     on('sr-all', 'change', e => {
-      const rows = ctx.requests.filter(r => state.filter === 'all' || STATUS[r.status] === state.filter);
-      state.selected = new Set(e.target.checked ? rows.map(r => r.id) : []);
+      state.selected = new Set(e.target.checked ? filteredRows().map(r => r.id) : []);
       render();
     });
     const selected = pred => ctx.requests.filter(r => state.selected.has(r.id) && pred(r)).map(r => r.id);
     on('sr-validate-sel', 'click', () => validate(selected(r => r.status === 0)));
+    on('sr-promote-sel', 'click', () => promote(selected(r => r.status === 3)));
     on('sr-refuse-sel', 'click', () => setStatus('refuse', selected(r => r.status !== 2)));
-    on('sr-reset-sel', 'click', () => setStatus('reset', selected(r => r.status !== 0)));
+    on('sr-reset-sel', 'click', () => setStatus('reset', selected(r => r.status === 1 || r.status === 2)));
     app.querySelectorAll('[data-act]').forEach(el => el.addEventListener('click', () => {
       const id = parseInt(el.dataset.id, 10);
       if (el.dataset.act === 'validate') validate([id]);
+      else if (el.dataset.act === 'promote') promote([id]);
       else setStatus(el.dataset.act, [id]);
     }));
+    app.querySelectorAll('.sr-prio').forEach(el => el.addEventListener('change', () => {
+      run(() => api('priority', { ids: [parseInt(el.dataset.id, 10)], priority: parseInt(el.value, 10) }), t('admin.saved'));
+    }));
+    app.querySelectorAll('.sr-note').forEach(el => {
+      el.addEventListener('input', () => { state.notes[el.dataset.group] = el.value; });
+      el.addEventListener('change', () => saveNote(el.dataset.group));
+    });
     on('sr-purge', 'click', purge);
 
     on('sr-ts-site', 'input', e => { state.ts.site = e.target.value; });
