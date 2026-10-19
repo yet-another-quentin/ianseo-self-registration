@@ -565,7 +565,15 @@ function sr_validate($TourId, $ids) {
 		);
 	}
 	if ($done) sr_set_status($TourId, $done, 1);
-	return array('lines' => sr_build_lines($requests), 'ids' => $done);
+	// entries these archers already have, per division and class (they count in the ##TARGET## lines)
+	$existing = array();
+	if ($requests) {
+		$codes = implode(',', array_map('StrSafe_DB', array_unique(array_column($requests, 'code'))));
+		$q = safe_r_sql("select EnCode, EnDivision, EnClass, count(*) as n from Entries where EnTournament=$TourId and EnCode in ($codes)
+			group by EnCode, EnDivision, EnClass");
+		while ($r = safe_fetch($q)) $existing[sr_line_value($r->EnCode) . '|' . $r->EnDivision . '|' . $r->EnClass] = intval($r->n);
+	}
+	return array('lines' => sr_build_lines($requests, $existing), 'ids' => $done);
 }
 
 function sr_entry_sessions($TourId, $code) {

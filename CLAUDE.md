@@ -118,7 +118,8 @@ In `SelfRegistration/`:
 - **ListLoad**:
   - processes lines **in order** and inserts entries inline, so `##TARGET##` and `##EMAIL##` lines come after the entry lines;
   - a 4-column line (license, session, division, class) takes name, sex, birth date and club from `LookUpEntries` (exact `LueCode` + `ToIocCode`, `ORDER BY LueDefault DESC`, the query reused by `sr_lookup()`);
-  - inserted entries get `EnTargetFace=0`: a `##TARGET##` line is always sent, with the face's index among the faces matching `(div+class LIKE TfClasses OR REGEXP TfRegExp)` ordered by `TfId` (`sr_face_index()`);
+  - inserted entries get the category's default face; a `##TARGET##` line sets the chosen one, with the face's index among the faces matching `(div+class LIKE TfClasses OR REGEXP TfRegExp)` ordered by `TfId` (`sr_face_index()`);
+  - that query crosses **all** the archer's entries with the same code, division and class with those faces (ordered by `TfId` only) and updates row `LIMIT n,1`: an archer with N such entries after the import needs N lines, n = index×N … index×N+N−1. `sr_validate()` counts the entries already there, `sr_build_lines()` adds the new ones (without "update", every line inserts an entry);
   - `##EMAIL##` refuses addresses outside `^[a-z0-9._#-]+@[a-z0-9._-]+$` (no `+`), and the form applies the same rule;
   - `;` is turned into a tab, so values go through `sr_line_value()`.
 - **Class**: ListLoad recomputes the age class (`calculateAgeClass()`: year of `ToWhenTo` − birth year, classes ordered by `ClViewOrder`) and keeps the sent class when it is one of them. `sr_class_for()` sends the first age class, so the import agrees. The FFTA season shift is already applied to `ClAgeFrom/To` by the FR rules.

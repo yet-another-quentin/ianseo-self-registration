@@ -149,27 +149,37 @@ function sr_waitlist_sort($rows) {
 }
 
 /**
- * "List load" lines for validated requests (Partecipants/ListLoad.php):
+ * "List load" lines for validated requests (Partecipants/ListLoad.php, without "update": every line inserts an entry):
  * - one 4-column line per session (license, session, division, class): IANSEO takes name, sex, birth date and club
  *   from its license database, and creates one entry per session;
- * - then, once the entries exist (ListLoad processes lines in order), ##TARGET## (target face, index among the
- *   matching faces ordered by TfId) and ##EMAIL##.
+ * - then, once the entries exist (ListLoad processes lines in order), ##TARGET## and ##EMAIL##.
+ *   ListLoad's ##TARGET## query crosses ALL the archer's entries (same code, division, class) with the matching faces
+ *   ordered by TfId, and updates the entry of row n ("LIMIT n,1"). An archer with N such entries after the import
+ *   needs N lines, n = faceIndex×N … faceIndex×N+N−1, to get the face on each of them.
  * $requests: [{code, session, division, class, faceIndex (int|null), email}]
+ * $existing: ["code|division|class" => entries already in the competition]
  */
-function sr_build_lines($requests) {
+function sr_build_lines($requests, $existing = array()) {
 	$entries = array();
-	$extra = array();
+	$count = array();
+	$faces = array();
+	$emails = array();
 	foreach ($requests as $r) {
 		$code = sr_line_value($r['code']);
 		$div = sr_line_value($r['division']);
 		$cl = sr_line_value($r['class']);
 		$entries[] = implode("\t", array($code, intval($r['session']), $div, $cl));
-		if ($r['faceIndex'] !== null and $r['faceIndex'] >= 0) {
-			$extra["T|$code|$div|$cl"] = implode("\t", array('##TARGET##', $code, $div, $cl, intval($r['faceIndex'])));
-		}
+		$key = "$code|$div|$cl";
+		$count[$key] = ($count[$key] ?? 0) + 1;
+		if ($r['faceIndex'] !== null and $r['faceIndex'] >= 0) $faces[$key] = array($code, $div, $cl, intval($r['faceIndex']));
 		if (!empty($r['email']) and sr_valid_email($r['email'])) {
-			$extra["E|$code"] = implode("\t", array('##EMAIL##', $code, sr_line_value($r['email'])));
+			$emails[$code] = implode("\t", array('##EMAIL##', $code, sr_line_value($r['email'])));
 		}
 	}
-	return array_merge($entries, array_values($extra));
+	$targets = array();
+	foreach ($faces as $key => list($code, $div, $cl, $index)) {
+		$n = $count[$key] + intval($existing[$key] ?? 0);
+		for ($i = 0; $i < $n; $i++) $targets[] = implode("\t", array('##TARGET##', $code, $div, $cl, $index * $n + $i));
+	}
+	return array_merge($entries, $targets, array_values($emails));
 }

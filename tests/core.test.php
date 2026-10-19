@@ -119,9 +119,14 @@ check('List load lines', $lines, array(
 	"123456A\t1\tCO\tS1H",
 	"123456A\t3\tCO\tS1H",
 	"654321B\t2\tCL\tU18F",
-	"##TARGET##\t123456A\tCO\tS1H\t2",
+	// 2 entries for 123456A CO S1H: face index 2 is rows 4 and 5 of entries × faces
+	"##TARGET##\t123456A\tCO\tS1H\t4",
+	"##TARGET##\t123456A\tCO\tS1H\t5",
 	"##EMAIL##\t123456A\ta@b.fr",
 ));
+$more = sr_build_lines(array(array('code' => '123456A', 'session' => 2, 'division' => 'CO', 'class' => 'S1H', 'faceIndex' => 1, 'email' => '')),
+	array('123456A|CO|S1H' => 1, '123456A|CL|S1H' => 3));
+check('entries already in the competition count', array_slice($more, 1), array("##TARGET##\t123456A\tCO\tS1H\t2", "##TARGET##\t123456A\tCO\tS1H\t3"));
 $evil = sr_build_lines(array(array('code' => "1;2\n##NOC##", 'session' => '1x', 'division' => "CO\t", 'class' => 'S1H', 'faceIndex' => 0, 'email' => "x@y.fr\n##X##")));
 check('no injected line or column', array(count($evil), substr_count(implode("\n", $evil), "\n"), substr_count($evil[0], "\t")), array(2, 1, 3));
 
